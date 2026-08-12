@@ -6,7 +6,8 @@ import {
     View,
 } from 'react-native';
 
-import { Incident, StatusType, Student } from '../../types/schoolcom';
+import { Incident, Student } from '../../types/schoolcom';
+import { getStatusBadgeStyle } from '../../utils/badges';
 
 interface AdminDashboardViewProps {
   students: Student[];
@@ -17,18 +18,12 @@ interface AdminDashboardViewProps {
     followUp: number;
     resolved: number;
   };
-  getStatusBadgeStyle: (status: StatusType) => {
-    bg: string;
-    text: string;
-    symbol: string;
-  };
 }
 
 export default function AdminDashboardView({
   students,
   incidents,
   metrics,
-  getStatusBadgeStyle,
 }: AdminDashboardViewProps) {
   return (
     <ScrollView style={styles.tabContent} showsVerticalScrollIndicator={false}>

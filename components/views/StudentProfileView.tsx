@@ -7,12 +7,8 @@ import {
     View,
 } from 'react-native';
 
-import {
-    Incident,
-    PriorityType,
-    StatusType,
-    Student,
-} from '../../types/schoolcom';
+import { Incident, Student } from '../../types/schoolcom';
+import { getPriorityBadgeStyle, getStatusBadgeStyle } from '../../utils/badges';
 
 interface StudentProfileViewProps {
   student: Student;
@@ -21,15 +17,6 @@ interface StudentProfileViewProps {
   onOpenWaModal: (student: Student, incident?: Incident | null) => void;
   onOpenNewIncident: (studentId: string) => void;
   onOpenFollowUpModal: (incident: Incident) => void;
-  getStatusBadgeStyle: (status: StatusType) => {
-    bg: string;
-    text: string;
-    symbol: string;
-  };
-  getPriorityBadgeStyle: (priority: PriorityType) => {
-    bg: string;
-    text: string;
-  };
 }
 
 export default function StudentProfileView({
@@ -39,8 +26,6 @@ export default function StudentProfileView({
   onOpenWaModal,
   onOpenNewIncident,
   onOpenFollowUpModal,
-  getStatusBadgeStyle,
-  getPriorityBadgeStyle,
 }: StudentProfileViewProps) {
   return (
     <ScrollView style={styles.tabContent} showsVerticalScrollIndicator={false}>

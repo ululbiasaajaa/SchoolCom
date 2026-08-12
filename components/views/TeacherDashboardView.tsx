@@ -1,13 +1,14 @@
 import React from 'react';
 import {
-    ScrollView,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from 'react-native';
 
-import { Incident, StatusType, Student } from '../../types/schoolcom';
+import { Incident, Student } from '../../types/schoolcom';
+import { getStatusBadgeStyle } from '../../utils/badges';
 
 interface TeacherDashboardViewProps {
   metrics: {
@@ -20,11 +21,6 @@ interface TeacherDashboardViewProps {
   students: Student[];
   onOpenNewIncident: () => void;
   onSelectStudent: (studentId: string) => void;
-  getStatusBadgeStyle: (status: StatusType) => {
-    bg: string;
-    text: string;
-    symbol: string;
-  };
 }
 
 export default function TeacherDashboardView({
@@ -33,7 +29,6 @@ export default function TeacherDashboardView({
   students,
   onOpenNewIncident,
   onSelectStudent,
-  getStatusBadgeStyle,
 }: TeacherDashboardViewProps) {
   return (
     <ScrollView style={styles.tabContent} showsVerticalScrollIndicator={false}>
