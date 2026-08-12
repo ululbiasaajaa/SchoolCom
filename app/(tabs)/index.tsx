@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   Alert,
   Platform,
@@ -28,98 +28,18 @@ import StudentListView from '../../components/views/StudentListView';
 import StudentProfileView from '../../components/views/StudentProfileView';
 import TeacherDashboardView from '../../components/views/TeacherDashboardView';
 
-// ==========================================
-// DUMMY DATA BASELINE
-// ==========================================
-const INITIAL_STUDENTS: Student[] = [
-  {
-    id: 's1',
-    name: 'Ananda Rayyan',
-    avatar: '👦',
-    className: 'TK-A Bintang',
-    dob: '2020-04-12',
-    parents: [
-      { name: 'Budi Santoso', relationship: 'Ayah', phone: '6281234567890' },
-      { name: 'Siti Rahma', relationship: 'Ibu', phone: '6281298765432' },
-    ],
-  },
-  {
-    id: 's2',
-    name: 'Aisyah Humaira',
-    avatar: '👧',
-    className: 'TK-A Bintang',
-    dob: '2020-08-25',
-    parents: [
-      { name: 'Ahmad Fauzi', relationship: 'Ayah', phone: '6281311223344' },
-    ],
-  },
-  {
-    id: 's3',
-    name: 'Kenzo Alfarizqi',
-    avatar: '👦',
-    className: 'TK-B Bulan',
-    dob: '2019-11-05',
-    parents: [
-      { name: 'Dewi Lestari', relationship: 'Ibu', phone: '6281555667788' },
-    ],
-  },
-];
+// Import Firestore Read Services
+import { subscribeToRecentIncidents } from '../../service/incidentService';
+import { subscribeToStudents } from '../../service/studentService';
 
-const INITIAL_INCIDENTS: Incident[] = [
-  {
-    id: 'inc-1',
-    studentId: 's1',
-    category: 'Behavior',
-    priority: 'Medium',
-    description: 'Menangis dan tidak mau berbagi mainan balok dengan teman.',
-    actionTaken: 'Menenangkan Rayyan dan mengajak bermain bersama Kenzo.',
-    status: 'Follow-up',
-    createdAt: '2026-08-10 09:15',
-    teacherName: 'Bu Guru Ana',
-    followUpLogs: [
-      {
-        id: 'f1',
-        note: 'Orang tua disarankan membawa mainan favorit dari rumah untuk transisi.',
-        updatedAt: '2026-08-10 14:00',
-      },
-    ],
-  },
-  {
-    id: 'inc-2',
-    studentId: 's2',
-    category: 'Academic',
-    priority: 'Low',
-    description: 'Sangat lancar mengenalkan huruf vokal A-I-U-E-O hari ini.',
-    actionTaken: 'Memberikan stiker pujian dan apresiasi di depan kelas.',
-    status: 'Resolved',
-    createdAt: '2026-08-11 10:30',
-    teacherName: 'Bu Guru Ana',
-    followUpLogs: [],
-  },
-  {
-    id: 'inc-3',
-    studentId: 's3',
-    category: 'Incident',
-    priority: 'High',
-    description: 'Tersandung saat lari di halaman, lutut kanan sedikit lecet.',
-    actionTaken: 'Diobati dengan antiseptik dan diplester di ruang UKS.',
-    status: 'Pending',
-    createdAt: '2026-08-12 08:45',
-    teacherName: 'Bu Guru Ana',
-    followUpLogs: [],
-  },
-];
-
-// ==========================================
-// MAIN SCREEN COMPONENT
-// ==========================================
 export default function HomeScreen() {
   const [currentRole, setCurrentRole] = useState<'Teacher' | 'Admin'>('Teacher');
   const [currentTab, setCurrentTab] = useState<'Dashboard' | 'Students' | 'AdminDash'>('Dashboard');
   const [selectedStudentId, setSelectedStudentId] = useState<string | null>(null);
 
-  const [students] = useState<Student[]>(INITIAL_STUDENTS);
-  const [incidents, setIncidents] = useState<Incident[]>(INITIAL_INCIDENTS);
+  // States populated by Firestore Realtime Listeners
+  const [students, setStudents] = useState<Student[]>([]);
+  const [incidents, setIncidents] = useState<Incident[]>([]);
 
   // Modals Visibility & Selection State
   const [isNewIncidentModalOpen, setIsNewIncidentModalOpen] = useState<boolean>(false);
@@ -131,6 +51,23 @@ export default function HomeScreen() {
 
   const [isFollowUpModalOpen, setIsFollowUpModalOpen] = useState<boolean>(false);
   const [selectedIncidentForAction, setSelectedIncidentForAction] = useState<Incident | null>(null);
+
+  // 1. Subscribe to Realtime Students & Incidents from Firestore
+  useEffect(() => {
+    const unsubStudents = subscribeToStudents((data) => {
+      setStudents(data);
+    });
+
+    const unsubIncidents = subscribeToRecentIncidents((data) => {
+      setIncidents(data);
+    });
+
+    // Cleanup listeners when component unmounts
+    return () => {
+      unsubStudents();
+      unsubIncidents();
+    };
+  }, []);
 
   const selectedStudent = useMemo(
     () => students.find((s) => s.id === selectedStudentId),
