@@ -28,8 +28,12 @@ import StudentListView from '../../components/views/StudentListView';
 import StudentProfileView from '../../components/views/StudentProfileView';
 import TeacherDashboardView from '../../components/views/TeacherDashboardView';
 
-// Import Firestore Read Services
-import { subscribeToRecentIncidents } from '../../service/incidentService';
+// Import Firestore Services
+import {
+  addIncident,
+  subscribeToRecentIncidents,
+  updateIncident,
+} from '../../service/incidentService';
 import { subscribeToStudents } from '../../service/studentService';
 
 export default function HomeScreen() {
@@ -52,7 +56,7 @@ export default function HomeScreen() {
   const [isFollowUpModalOpen, setIsFollowUpModalOpen] = useState<boolean>(false);
   const [selectedIncidentForAction, setSelectedIncidentForAction] = useState<Incident | null>(null);
 
-  // 1. Subscribe to Realtime Students & Incidents from Firestore
+  // Subscribe to Realtime Students & Incidents from Firestore
   useEffect(() => {
     const unsubStudents = subscribeToStudents((data) => {
       setStudents(data);
@@ -62,7 +66,6 @@ export default function HomeScreen() {
       setIncidents(data);
     });
 
-    // Cleanup listeners when component unmounts
     return () => {
       unsubStudents();
       unsubIncidents();
@@ -93,32 +96,32 @@ export default function HomeScreen() {
     setIsNewIncidentModalOpen(true);
   };
 
-  const handleSaveIncident = (data: {
+  // CREATE Incident Baru ke Cloud Firestore
+  const handleSaveIncident = async (data: {
     studentId: string;
     category: CategoryType;
     priority: PriorityType;
     description: string;
     actionTaken: string;
   }) => {
-    const now = new Date();
-    const formattedDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+    try {
+      await addIncident({
+        studentId: data.studentId,
+        category: data.category,
+        priority: data.priority,
+        description: data.description,
+        actionTaken: data.actionTaken,
+        status: 'Pending',
+        teacherName: 'Bu Guru Ana',
+        followUpLogs: [],
+      });
 
-    const newInc: Incident = {
-      id: `inc-${Date.now()}`,
-      studentId: data.studentId,
-      category: data.category,
-      priority: data.priority,
-      description: data.description,
-      actionTaken: data.actionTaken,
-      status: 'Pending',
-      createdAt: formattedDate,
-      teacherName: 'Bu Guru Ana',
-      followUpLogs: [],
-    };
-
-    setIncidents([newInc, ...incidents]);
-    setIsNewIncidentModalOpen(false);
-    Alert.alert('Sukses', 'Catatan baru berhasil disimpan!');
+      setIsNewIncidentModalOpen(false);
+      Alert.alert('Sukses', 'Catatan baru berhasil disimpan ke database!');
+    } catch (error) {
+      console.error('Error saving incident:', error);
+      Alert.alert('Gagal', 'Terjadi kesalahan saat menyimpan catatan ke database.');
+    }
   };
 
   const handleOpenWaModal = (student: Student, incident: Incident | null = null) => {
@@ -137,34 +140,34 @@ export default function HomeScreen() {
     setIsFollowUpModalOpen(true);
   };
 
-  const handleSaveFollowUp = (updatedStatus: StatusType, updateNote: string) => {
+  // UPDATE Status / Follow-Up Log ke Cloud Firestore
+  const handleSaveFollowUp = async (updatedStatus: StatusType, updateNote: string) => {
     if (!selectedIncidentForAction) return;
 
-    const now = new Date();
-    const formattedDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+    try {
+      const now = new Date();
+      const formattedDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
 
-    const updatedIncidents = incidents.map((inc) => {
-      if (inc.id === selectedIncidentForAction.id) {
-        const newLogs = [...inc.followUpLogs];
-        if (updateNote.trim()) {
-          newLogs.push({
-            id: `f-${Date.now()}`,
-            note: updateNote.trim(),
-            updatedAt: formattedDate,
-          });
-        }
-        return {
-          ...inc,
-          status: updatedStatus,
-          followUpLogs: newLogs,
-        };
+      const newLogs = [...selectedIncidentForAction.followUpLogs];
+      if (updateNote.trim()) {
+        newLogs.push({
+          id: `f-${Date.now()}`,
+          note: updateNote.trim(),
+          updatedAt: formattedDate,
+        });
       }
-      return inc;
-    });
 
-    setIncidents(updatedIncidents);
-    setIsFollowUpModalOpen(false);
-    Alert.alert('Berhasil', 'Status dan tindak lanjut berhasil diperbarui.');
+      await updateIncident(selectedIncidentForAction.id, {
+        status: updatedStatus,
+        followUpLogs: newLogs,
+      });
+
+      setIsFollowUpModalOpen(false);
+      Alert.alert('Berhasil', 'Status dan tindak lanjut berhasil diperbarui di database.');
+    } catch (error) {
+      console.error('Error updating follow-up:', error);
+      Alert.alert('Gagal', 'Terjadi kesalahan saat memperbarui tindak lanjut di database.');
+    }
   };
 
   return (
