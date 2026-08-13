@@ -1,20 +1,16 @@
 import React, { useEffect, useState } from 'react';
 import {
-    Alert,
-    Modal,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
+  ActivityIndicator,
+  Modal,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from 'react-native';
 
-import {
-    CategoryType,
-    PriorityType,
-    Student,
-} from '../../types/schoolcom';
+import { CategoryType, PriorityType, Student } from '../../types/schoolcom';
 
 interface NewIncidentModalProps {
   visible: boolean;
@@ -27,8 +23,11 @@ interface NewIncidentModalProps {
     priority: PriorityType;
     description: string;
     actionTaken: string;
-  }) => void;
+  }) => Promise<void> | void;
 }
+
+const CATEGORIES: CategoryType[] = ['Behavior', 'Academic', 'Health', 'Other'];
+const PRIORITIES: PriorityType[] = ['Low', 'Medium', 'High'];
 
 export default function NewIncidentModal({
   visible,
@@ -37,113 +36,174 @@ export default function NewIncidentModal({
   onClose,
   onSave,
 }: NewIncidentModalProps) {
-  const [formStudentId, setFormStudentId] = useState<string>('');
-  const [formCategory, setFormCategory] = useState<CategoryType>('Observation');
-  const [formPriority, setFormPriority] = useState<PriorityType>('Low');
-  const [formDescription, setFormDescription] = useState<string>('');
-  const [formActionTaken, setFormActionTaken] = useState<string>('');
+  const [selectedStudentId, setSelectedStudentId] = useState<string>(initialStudentId);
+  const [category, setCategory] = useState<CategoryType>('Behavior');
+  const [priority, setPriority] = useState<PriorityType>('Medium');
+  const [description, setDescription] = useState<string>('');
+  const [actionTaken, setActionTaken] = useState<string>('');
+  const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
 
-  // Reset form state saat modal dibuka
   useEffect(() => {
     if (visible) {
-      setFormStudentId(initialStudentId || (students[0]?.id ?? ''));
-      setFormCategory('Observation');
-      setFormPriority('Low');
-      setFormDescription('');
-      setFormActionTaken('');
+      setSelectedStudentId(initialStudentId || (students[0]?.id ?? ''));
+      setCategory('Behavior');
+      setPriority('Medium');
+      setDescription('');
+      setActionTaken('');
+      setIsSubmitting(false);
     }
   }, [visible, initialStudentId, students]);
 
-  const handleSave = () => {
-    if (!formDescription.trim()) {
-      Alert.alert('Form Belum Lengkap', 'Mohon isi deskripsi catatan/insiden.');
+  const handleSave = async () => {
+    if (!selectedStudentId) {
+      alert('Pilih siswa terlebih dahulu.');
+      return;
+    }
+    if (!description.trim()) {
+      alert('Deskripsi observasi/insiden wajib diisi.');
       return;
     }
 
-    onSave({
-      studentId: formStudentId,
-      category: formCategory,
-      priority: formPriority,
-      description: formDescription,
-      actionTaken: formActionTaken,
-    });
+    setIsSubmitting(true);
+    try {
+      await onSave({
+        studentId: selectedStudentId,
+        category,
+        priority,
+        description: description.trim(),
+        actionTaken: actionTaken.trim(),
+      });
+      // Jika berhasil, resetting & penutupan diserahkan ke parent/useEffect
+    } catch (error) {
+      console.error('Error submitting incident:', error);
+      // Input tetap dipertahankan jika throw error
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
-    <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
-      <View style={styles.modalOverlay}>
-        <View style={styles.modalContainer}>
-          <Text style={styles.modalTitle}>Catatan Observasi / Insiden Baru</Text>
+    <Modal visible={visible} animationType="slide" transparent>
+      <View style={styles.overlay}>
+        <View style={styles.modalCard}>
+          <Text style={styles.modalTitle}>+ Buat Catatan / Observasi Baru</Text>
 
-          <ScrollView showsVerticalScrollIndicator={false}>
-            <Text style={styles.inputLabel}>Pilih Siswa</Text>
-            <View style={styles.pickerContainer}>
-              {students.map((s) => (
-                <TouchableOpacity
-                  key={s.id}
-                  style={[styles.chip, formStudentId === s.id && styles.chipActive]}
-                  onPress={() => setFormStudentId(s.id)}
-                >
-                  <Text style={[styles.chipText, formStudentId === s.id && styles.chipTextActive]}>
-                    {s.avatar} {s.name}
-                  </Text>
-                </TouchableOpacity>
-              ))}
+          <ScrollView style={styles.scrollForm} showsVerticalScrollIndicator={false}>
+            {/* Pilih Siswa */}
+            <Text style={styles.label}>Pilih Siswa *</Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.pickerScroll}>
+              {students.map((s) => {
+                const isSelected = s.id === selectedStudentId;
+                return (
+                  <TouchableOpacity
+                    key={s.id}
+                    disabled={isSubmitting}
+                    style={[
+                      styles.chip,
+                      isSelected && styles.chipActive,
+                      isSubmitting && styles.disabledOpacity,
+                    ]}
+                    onPress={() => setSelectedStudentId(s.id)}
+                  >
+                    <Text style={[styles.chipText, isSelected && styles.chipTextActive]}>
+                      {s.avatar || '👦'} {s.name}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+
+            {/* Kategori */}
+            <Text style={styles.label}>Kategori *</Text>
+            <View style={styles.rowGrid}>
+              {CATEGORIES.map((cat) => {
+                const isSelected = cat === category;
+                return (
+                  <TouchableOpacity
+                    key={cat}
+                    disabled={isSubmitting}
+                    style={[
+                      styles.gridChip,
+                      isSelected && styles.gridChipActive,
+                      isSubmitting && styles.disabledOpacity,
+                    ]}
+                    onPress={() => setCategory(cat)}
+                  >
+                    <Text style={[styles.chipText, isSelected && styles.chipTextActive]}>{cat}</Text>
+                  </TouchableOpacity>
+                );
+              })}
             </View>
 
-            <Text style={styles.inputLabel}>Kategori</Text>
-            <View style={styles.pickerContainer}>
-              {(['Observation', 'Behavior', 'Academic', 'Social', 'Incident', 'Other'] as const).map((cat) => (
-                <TouchableOpacity
-                  key={cat}
-                  style={[styles.chip, formCategory === cat && styles.chipActive]}
-                  onPress={() => setFormCategory(cat)}
-                >
-                  <Text style={[styles.chipText, formCategory === cat && styles.chipTextActive]}>{cat}</Text>
-                </TouchableOpacity>
-              ))}
+            {/* Prioritas */}
+            <Text style={styles.label}>Prioritas *</Text>
+            <View style={styles.rowGrid}>
+              {PRIORITIES.map((prio) => {
+                const isSelected = prio === priority;
+                return (
+                  <TouchableOpacity
+                    key={prio}
+                    disabled={isSubmitting}
+                    style={[
+                      styles.gridChip,
+                      isSelected && styles.gridChipActivePriority,
+                      isSubmitting && styles.disabledOpacity,
+                    ]}
+                    onPress={() => setPriority(prio)}
+                  >
+                    <Text style={[styles.chipText, isSelected && styles.chipTextActive]}>{prio}</Text>
+                  </TouchableOpacity>
+                );
+              })}
             </View>
 
-            <Text style={styles.inputLabel}>Tingkat Prioritas</Text>
-            <View style={styles.pickerContainer}>
-              {(['Low', 'Medium', 'High'] as const).map((prio) => (
-                <TouchableOpacity
-                  key={prio}
-                  style={[styles.chip, formPriority === prio && styles.chipActive]}
-                  onPress={() => setFormPriority(prio)}
-                >
-                  <Text style={[styles.chipText, formPriority === prio && styles.chipTextActive]}>{prio}</Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-
-            <Text style={styles.inputLabel}>Deskripsi Kejadian / Observasi</Text>
+            {/* Deskripsi */}
+            <Text style={styles.label}>Deskripsi Observasi / Kejadian *</Text>
             <TextInput
-              style={styles.textArea}
-              placeholder="Tuliskan catatan observasi atau insiden secara singkat..."
+              style={[styles.textArea, isSubmitting && styles.disabledOpacity]}
+              placeholder="Contoh: Menangis karena rebutan mainan balok..."
+              placeholderTextColor="#9CA3AF"
               multiline
               numberOfLines={3}
-              value={formDescription}
-              onChangeText={setFormDescription}
+              value={description}
+              onChangeText={setDescription}
+              editable={!isSubmitting}
             />
 
-            <Text style={styles.inputLabel}>Tindakan yang Sudah Dilakukan Guru</Text>
+            {/* Tindakan Awal */}
+            <Text style={styles.label}>Tindakan Langsung Guru (Opsional)</Text>
             <TextInput
-              style={styles.textArea}
-              placeholder="Contoh: Menenangkan anak, memberi pertolongan pertama..."
+              style={[styles.textArea, isSubmitting && styles.disabledOpacity]}
+              placeholder="Contoh: Menenangkan dan mengajak bicara secara personal..."
+              placeholderTextColor="#9CA3AF"
               multiline
               numberOfLines={2}
-              value={formActionTaken}
-              onChangeText={setFormActionTaken}
+              value={actionTaken}
+              onChangeText={setActionTaken}
+              editable={!isSubmitting}
             />
           </ScrollView>
 
-          <View style={styles.modalActions}>
-            <TouchableOpacity style={styles.cancelBtn} onPress={onClose}>
+          {/* Action Buttons */}
+          <View style={styles.actionRow}>
+            <TouchableOpacity
+              style={[styles.cancelBtn, isSubmitting && styles.disabledOpacity]}
+              onPress={onClose}
+              disabled={isSubmitting}
+            >
               <Text style={styles.cancelBtnText}>Batal</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={styles.saveBtn} onPress={handleSave}>
-              <Text style={styles.saveBtnText}>Simpan Catatan</Text>
+
+            <TouchableOpacity
+              style={[styles.saveBtn, isSubmitting && styles.disabledBtn]}
+              onPress={handleSave}
+              disabled={isSubmitting}
+            >
+              {isSubmitting ? (
+                <ActivityIndicator size="small" color="#FFFFFF" />
+              ) : (
+                <Text style={styles.saveBtnText}>Simpan Catatan</Text>
+              )}
             </TouchableOpacity>
           </View>
         </View>
@@ -153,15 +213,15 @@ export default function NewIncidentModal({
 }
 
 const styles = StyleSheet.create({
-  modalOverlay: {
+  overlay: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    justifyContent: 'flex-end',
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    padding: 16,
   },
-  modalContainer: {
+  modalCard: {
     backgroundColor: '#FFFFFF',
-    borderTopLeftRadius: 16,
-    borderTopRightRadius: 16,
+    borderRadius: 12,
     padding: 16,
     maxHeight: '85%',
   },
@@ -171,35 +231,61 @@ const styles = StyleSheet.create({
     color: '#111827',
     marginBottom: 12,
   },
-  inputLabel: {
+  scrollForm: {
+    marginBottom: 12,
+  },
+  label: {
     fontSize: 12,
     fontWeight: '600',
     color: '#374151',
     marginTop: 10,
     marginBottom: 6,
   },
-  pickerContainer: {
+  pickerScroll: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
+    marginBottom: 4,
   },
   chip: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 8,
     backgroundColor: '#F3F4F6',
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 16,
-    marginRight: 6,
-    marginBottom: 6,
+    marginRight: 8,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
   },
   chipActive: {
     backgroundColor: '#2563EB',
+    borderColor: '#2563EB',
+  },
+  rowGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  gridChip: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 8,
+    backgroundColor: '#F3F4F6',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  gridChipActive: {
+    backgroundColor: '#2563EB',
+    borderColor: '#2563EB',
+  },
+  gridChipActivePriority: {
+    backgroundColor: '#D97706',
+    borderColor: '#D97706',
   },
   chipText: {
     fontSize: 12,
+    fontWeight: '600',
     color: '#4B5563',
   },
   chipTextActive: {
     color: '#FFFFFF',
-    fontWeight: '600',
   },
   textArea: {
     backgroundColor: '#F9FAFB',
@@ -208,30 +294,46 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     padding: 10,
     fontSize: 13,
+    color: '#111827',
     textAlignVertical: 'top',
   },
-  modalActions: {
+  actionRow: {
     flexDirection: 'row',
     justifyContent: 'flex-end',
-    marginTop: 16,
+    gap: 10,
+    paddingTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: '#E5E7EB',
   },
   cancelBtn: {
     paddingHorizontal: 16,
     paddingVertical: 10,
-    marginRight: 8,
+    borderRadius: 8,
+    backgroundColor: '#F3F4F6',
   },
   cancelBtnText: {
-    color: '#6B7280',
+    color: '#4B5563',
     fontWeight: '600',
+    fontSize: 13,
   },
   saveBtn: {
-    backgroundColor: '#2563EB',
     paddingHorizontal: 16,
     paddingVertical: 10,
     borderRadius: 8,
+    backgroundColor: '#2563EB',
+    minWidth: 120,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   saveBtnText: {
     color: '#FFFFFF',
     fontWeight: '600',
+    fontSize: 13,
+  },
+  disabledBtn: {
+    backgroundColor: '#93C5FD',
+  },
+  disabledOpacity: {
+    opacity: 0.6,
   },
 });

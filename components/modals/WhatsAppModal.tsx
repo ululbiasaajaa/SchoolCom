@@ -1,13 +1,13 @@
 import React, { useEffect, useState } from 'react';
 import {
-    Alert,
-    Linking,
-    Modal,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
+  Alert,
+  Linking,
+  Modal,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from 'react-native';
 
 import { Incident, Parent, Student } from '../../types/schoolcom';
@@ -28,22 +28,30 @@ export default function WhatsAppModal({
   const [waSelectedParent, setWaSelectedParent] = useState<Parent | null>(null);
   const [waMessageDraft, setWaMessageDraft] = useState<string>('');
 
-  // Auto-generate draft & set default parent saat modal dibuka
+  const generateDraft = (parent: Parent, targetStudent: Student) => {
+    const now = new Date();
+    const todayStr = `${now.getDate()} August ${now.getFullYear()}`;
+    const relationText = parent.relationship || (parent as any).relation || 'Wali';
+
+    return `Assalamu'alaikum Bapak/Ibu ${parent.name} (${relationText}). Kami ingin menyampaikan informasi mengenai Ananda ${targetStudent.name} terkait kegiatan/kejadian pada ${todayStr}.\n\nCatatan: ${incident ? incident.description : 'Perkembangan harian di kelas.'}\n\nMohon dapat diperhatikan dan apabila diperlukan kami akan melakukan tindak lanjut. Terima kasih.`;
+  };
+
   useEffect(() => {
     if (visible && student && student.parents && student.parents.length > 0) {
       const defaultParent = student.parents[0];
       setWaSelectedParent(defaultParent);
-
-      const now = new Date();
-      const todayStr = `${now.getDate()} August ${now.getFullYear()}`;
-
-      const defaultDraft = `Assalamu'alaikum Bapak/Ibu ${defaultParent.name}. Kami ingin menyampaikan informasi mengenai Ananda ${student.name} terkait kegiatan/kejadian pada ${todayStr}.\n\nCatatan: ${incident ? incident.description : 'Perkembangan harian di kelas.'}\n\nMohon dapat diperhatikan dan apabila diperlukan kami akan melakukan tindak lanjut. Terima kasih.`;
-
-      setWaMessageDraft(defaultDraft);
+      setWaMessageDraft(generateDraft(defaultParent, student));
     }
   }, [visible, student, incident]);
 
-  const handleSendWhatsApp = () => {
+  const handleSelectParent = (p: Parent) => {
+    setWaSelectedParent(p);
+    if (student) {
+      setWaMessageDraft(generateDraft(p, student));
+    }
+  };
+
+  const handleSendWhatsApp = async () => {
     if (!waSelectedParent || !waSelectedParent.phone) {
       Alert.alert('Error', 'Nomor telepon wali tidak valid.');
       return;
@@ -54,18 +62,20 @@ export default function WhatsAppModal({
       phone = '62' + phone.slice(1);
     }
 
-    const url = `whatsapp://send?phone=${phone}&text=${encodeURIComponent(waMessageDraft)}`;
+    const appUrl = `whatsapp://send?phone=${phone}&text=${encodeURIComponent(waMessageDraft)}`;
+    const webUrl = `https://wa.me/${phone}?text=${encodeURIComponent(waMessageDraft)}`;
 
-    Linking.canOpenURL(url)
-      .then((supported) => {
-        if (supported) {
-          return Linking.openURL(url);
-        } else {
-          const webUrl = `https://wa.me/${phone}?text=${encodeURIComponent(waMessageDraft)}`;
-          return Linking.openURL(webUrl);
-        }
-      })
-      .catch(() => Alert.alert('Error', 'Gagal membuka aplikasi WhatsApp.'));
+    try {
+      // Coba buka langsung via aplikasi WhatsApp
+      await Linking.openURL(appUrl);
+    } catch (e) {
+      // Jika gagal/app WhatsApp tidak terinstall, buka via Browser (wa.me)
+      try {
+        await Linking.openURL(webUrl);
+      } catch (err) {
+        Alert.alert('Error', 'Gagal membuka WhatsApp di perangkat Anda.');
+      }
+    }
 
     onClose();
   };
@@ -77,20 +87,28 @@ export default function WhatsAppModal({
           <Text style={styles.modalTitle}>Kirim Laporan via WhatsApp</Text>
 
           <Text style={styles.inputLabel}>Pilih Penerima (Orang Tua / Wali)</Text>
-          {student?.parents.map((p, idx) => (
-            <TouchableOpacity
-              key={idx}
-              style={[styles.parentOption, waSelectedParent?.phone === p.phone && styles.parentOptionActive]}
-              onPress={() => setWaSelectedParent(p)}
-            >
-              <Text style={styles.parentOptionText}>{p.name} ({p.relationship}) - {p.phone}</Text>
-            </TouchableOpacity>
-          ))}
+          {student?.parents.map((p, idx) => {
+            const isSelected = waSelectedParent?.phone === p.phone;
+            const relationText = p.relationship || (p as any).relation || 'Wali';
+            return (
+              <TouchableOpacity
+                key={idx}
+                style={[styles.parentOption, isSelected && styles.parentOptionActive]}
+                onPress={() => handleSelectParent(p)}
+              >
+                <Text style={[styles.parentOptionText, isSelected && styles.parentOptionTextActive]}>
+                  {p.name} ({relationText}) - {p.phone}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
 
           <Text style={styles.inputLabel}>Draft Pesan (Dapat Diedit)</Text>
           <TextInput
             style={[styles.textArea, { height: 120 }]}
             multiline
+            placeholder="Tulis pesan..."
+            placeholderTextColor="#9CA3AF"
             value={waMessageDraft}
             onChangeText={setWaMessageDraft}
           />
@@ -146,6 +164,7 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     padding: 10,
     fontSize: 13,
+    color: '#111827',
     textAlignVertical: 'top',
   },
   modalActions: {
@@ -186,6 +205,10 @@ const styles = StyleSheet.create({
   parentOptionText: {
     fontSize: 12,
     color: '#111827',
+  },
+  parentOptionTextActive: {
+    color: '#1D4ED8',
+    fontWeight: '600',
   },
   waNotice: {
     fontSize: 11,

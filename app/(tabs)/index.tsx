@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
+  ActivityIndicator,
   Alert,
   Platform,
   SafeAreaView,
@@ -28,7 +29,10 @@ import StudentListView from '../../components/views/StudentListView';
 import StudentProfileView from '../../components/views/StudentProfileView';
 import TeacherDashboardView from '../../components/views/TeacherDashboardView';
 
-// Import Firestore Services
+// Import Firebase Services
+import { doc, getDoc } from 'firebase/firestore';
+import { auth, db } from '../../config/firebase';
+import { logoutUser } from '../../service/authService';
 import {
   addIncident,
   subscribeToRecentIncidents,
@@ -36,12 +40,22 @@ import {
 } from '../../service/incidentService';
 import { subscribeToStudents } from '../../service/studentService';
 
+// Helper sanitasi status internal
+const getSafeStatus = (raw: string | undefined): StatusType => {
+  const s = (raw || '').toString();
+  return ['Pending', 'Follow-up', 'Resolved'].includes(s) ? (s as StatusType) : 'Pending';
+};
+
 export default function HomeScreen() {
-  const [currentRole, setCurrentRole] = useState<'Teacher' | 'Admin'>('Teacher');
+  // Real User State from Firebase Auth & Firestore
+  const [userName, setUserName] = useState<string>('Guru');
+  const [userRole, setUserRole] = useState<'teacher' | 'admin'>('teacher');
+  const [isLoadingProfile, setIsLoadingProfile] = useState<boolean>(true);
+
   const [currentTab, setCurrentTab] = useState<'Dashboard' | 'Students' | 'AdminDash'>('Dashboard');
   const [selectedStudentId, setSelectedStudentId] = useState<string | null>(null);
 
-  // States populated by Firestore Realtime Listeners
+  // States populated exclusively by Firestore Realtime Listeners
   const [students, setStudents] = useState<Student[]>([]);
   const [incidents, setIncidents] = useState<Incident[]>([]);
 
@@ -56,7 +70,43 @@ export default function HomeScreen() {
   const [isFollowUpModalOpen, setIsFollowUpModalOpen] = useState<boolean>(false);
   const [selectedIncidentForAction, setSelectedIncidentForAction] = useState<Incident | null>(null);
 
-  // Subscribe to Realtime Students & Incidents from Firestore
+  // 1. Fetch Real User Profile from Firestore 'users' Collection
+  useEffect(() => {
+    const fetchUserProfile = async () => {
+      const currentUser = auth.currentUser;
+      if (currentUser) {
+        try {
+          const userDocRef = doc(db, 'users', currentUser.uid);
+          const userDocSnap = await getDoc(userDocRef);
+
+          if (userDocSnap.exists()) {
+            const data = userDocSnap.data();
+            if (data.name) setUserName(data.name);
+            if (data.role) {
+              const roleLower = data.role.toLowerCase();
+              if (roleLower === 'admin') {
+                setUserRole('admin');
+                setCurrentTab('AdminDash');
+              } else {
+                setUserRole('teacher');
+                setCurrentTab('Dashboard');
+              }
+            }
+          }
+        } catch (error) {
+          console.error('Error fetching user profile in HomeScreen:', error);
+        } finally {
+          setIsLoadingProfile(false);
+        }
+      } else {
+        setIsLoadingProfile(false);
+      }
+    };
+
+    fetchUserProfile();
+  }, []);
+
+  // 2. Subscribe to Realtime Students & Incidents from Firestore
   useEffect(() => {
     const unsubStudents = subscribeToStudents((data) => {
       setStudents(data);
@@ -85,9 +135,9 @@ export default function HomeScreen() {
   const metrics = useMemo(() => {
     return {
       totalObs: incidents.length,
-      pending: incidents.filter((i) => i.status === 'Pending').length,
-      followUp: incidents.filter((i) => i.status === 'Follow-up').length,
-      resolved: incidents.filter((i) => i.status === 'Resolved').length,
+      pending: incidents.filter((i) => getSafeStatus(i.status) === 'Pending').length,
+      followUp: incidents.filter((i) => getSafeStatus(i.status) === 'Follow-up').length,
+      resolved: incidents.filter((i) => getSafeStatus(i.status) === 'Resolved').length,
     };
   }, [incidents]);
 
@@ -112,14 +162,14 @@ export default function HomeScreen() {
         description: data.description,
         actionTaken: data.actionTaken,
         status: 'Pending',
-        teacherName: 'Bu Guru Ana',
+        teacherName: userName,
         followUpLogs: [],
       });
 
       setIsNewIncidentModalOpen(false);
       Alert.alert('Sukses', 'Catatan baru berhasil disimpan ke database!');
     } catch (error) {
-      console.error('Error saving incident:', error);
+      console.error('Error saving incident in HomeScreen:', error);
       Alert.alert('Gagal', 'Terjadi kesalahan saat menyimpan catatan ke database.');
     }
   };
@@ -140,24 +190,31 @@ export default function HomeScreen() {
     setIsFollowUpModalOpen(true);
   };
 
-  // UPDATE Status / Follow-Up Log ke Cloud Firestore
-  const handleSaveFollowUp = async (updatedStatus: StatusType, updateNote: string) => {
-    if (!selectedIncidentForAction) return;
+  // UPDATE Status / Follow-Up Log ke Cloud Firestore (Fix Signatur Parameter 3 Argumen)
+  const handleSaveFollowUp = async (incidentId: string, updatedStatus: StatusType, updateNote: string) => {
+    const targetIncident = selectedIncidentForAction || incidents.find((i) => i.id === incidentId);
+    if (!targetIncident) return;
 
     try {
       const now = new Date();
       const formattedDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
 
-      const newLogs = [...selectedIncidentForAction.followUpLogs];
-      if (updateNote.trim()) {
+      const uniqueLogId = `f-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
+
+      const newLogs = [...(targetIncident.followUpLogs || [])];
+      
+      // Hanya push log jika catatan tidak kosong
+      if (updateNote && updateNote.trim().length > 0) {
         newLogs.push({
-          id: `f-${Date.now()}`,
+          id: uniqueLogId,
           note: updateNote.trim(),
+          author: userName || 'Guru',
+          date: formattedDate,
           updatedAt: formattedDate,
         });
       }
 
-      await updateIncident(selectedIncidentForAction.id, {
+      await updateIncident(targetIncident.id, {
         status: updatedStatus,
         followUpLogs: newLogs,
       });
@@ -165,43 +222,62 @@ export default function HomeScreen() {
       setIsFollowUpModalOpen(false);
       Alert.alert('Berhasil', 'Status dan tindak lanjut berhasil diperbarui di database.');
     } catch (error) {
-      console.error('Error updating follow-up:', error);
+      console.error('Error updating follow-up in HomeScreen:', error);
       Alert.alert('Gagal', 'Terjadi kesalahan saat memperbarui tindak lanjut di database.');
     }
   };
+
+  // Handler Logout
+  const handleLogout = () => {
+    Alert.alert(
+      'Konfirmasi Logout',
+      'Apakah Anda yakin ingin keluar dari aplikasi?',
+      [
+        { text: 'Batal', style: 'cancel' },
+        { 
+          text: 'Keluar', 
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await logoutUser();
+            } catch (err) {
+              Alert.alert('Error', 'Gagal keluar dari aplikasi.');
+            }
+          }
+        },
+      ]
+    );
+  };
+
+  if (isLoadingProfile) {
+    return (
+      <SafeAreaView style={[styles.container, styles.centerContent]}>
+        <ActivityIndicator size="large" color="#2563EB" />
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
 
-      {/* Top Header & Role Switcher */}
+      {/* Header dengan Nama User & Tombol Keluar */}
       <View style={styles.topHeader}>
-        <Text style={styles.appTitle}>SchoolCom MVP</Text>
-        <View style={styles.roleToggle}>
-          <TouchableOpacity
-            style={[styles.roleBtn, currentRole === 'Teacher' && styles.roleBtnActive]}
-            onPress={() => {
-              setCurrentRole('Teacher');
-              setCurrentTab('Dashboard');
-            }}
-          >
-            <Text style={[styles.roleBtnText, currentRole === 'Teacher' && styles.roleBtnTextActive]}>Guru</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.roleBtn, currentRole === 'Admin' && styles.roleBtnActive]}
-            onPress={() => {
-              setCurrentRole('Admin');
-              setCurrentTab('AdminDash');
-            }}
-          >
-            <Text style={[styles.roleBtnText, currentRole === 'Admin' && styles.roleBtnTextActive]}>Admin</Text>
-          </TouchableOpacity>
+        <View>
+          <Text style={styles.appTitle}>SchoolCom</Text>
+          <Text style={styles.userSubTitle}>
+            {userName} ({userRole === 'admin' ? 'Admin' : 'Guru'})
+          </Text>
         </View>
+
+        <TouchableOpacity style={styles.logoutBtn} onPress={handleLogout}>
+          <Text style={styles.logoutBtnText}>Keluar</Text>
+        </TouchableOpacity>
       </View>
 
       {/* Main View Area */}
       <View style={{ flex: 1 }}>
-        {currentRole === 'Teacher' ? (
+        {userRole === 'teacher' ? (
           selectedStudent ? (
             <StudentProfileView
               student={selectedStudent}
@@ -213,6 +289,7 @@ export default function HomeScreen() {
             />
           ) : currentTab === 'Dashboard' ? (
             <TeacherDashboardView
+              teacherName={userName}
               metrics={metrics}
               incidents={incidents}
               students={students}
@@ -237,8 +314,8 @@ export default function HomeScreen() {
         )}
       </View>
 
-      {/* Bottom Nav untuk Role Guru */}
-      {currentRole === 'Teacher' && (
+      {/* Bottom Nav khusus Role Guru */}
+      {userRole === 'teacher' && (
         <View style={styles.bottomNav}>
           <TouchableOpacity
             style={styles.navTab}
@@ -298,6 +375,10 @@ const styles = StyleSheet.create({
     backgroundColor: '#F3F4F6',
     paddingTop: Platform.OS === 'android' ? StatusBar.currentHeight : 0,
   },
+  centerContent: {
+    justify: 'center',
+    alignItems: 'center',
+  },
   topHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -311,36 +392,35 @@ const styles = StyleSheet.create({
   appTitle: {
     fontSize: 18,
     fontWeight: '700',
-    color: '#111827',
+    color: '#2563EB',
   },
-  roleToggle: {
-    flexDirection: 'row',
-    backgroundColor: '#F3F4F6',
-    borderRadius: 8,
-    padding: 2,
-  },
-  roleBtn: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 6,
-  },
-  roleBtnActive: {
-    backgroundColor: '#2563EB',
-  },
-  roleBtnText: {
+  userSubTitle: {
     fontSize: 12,
     fontWeight: '600',
     color: '#4B5563',
+    marginTop: 1,
   },
-  roleBtnTextActive: {
-    color: '#FFFFFF',
+  logoutBtn: {
+    backgroundColor: '#FEE2E2',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: '#FCA5A5',
+  },
+  logoutBtnText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#DC2626',
   },
   bottomNav: {
     flexDirection: 'row',
-    height: 56,
+    height: Platform.OS === 'android' ? 84 : 70,
+    paddingBottom: Platform.OS === 'android' ? 28 : 16,
     backgroundColor: '#FFFFFF',
     borderTopWidth: 1,
     borderTopColor: '#E5E7EB',
+    alignItems: 'center',
   },
   navTab: {
     flex: 1,

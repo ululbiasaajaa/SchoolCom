@@ -1,11 +1,11 @@
 import React, { useMemo, useState } from 'react';
 import {
-    FlatList,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from 'react-native';
 
 import { Student } from '../../types/schoolcom';
@@ -19,113 +19,161 @@ export default function StudentListView({
   students,
   onSelectStudent,
 }: StudentListViewProps) {
-  const [searchQuery, setSearchQuery] = useState<string>('');
+  const [searchQuery, setSearchQuery] = useState('');
 
+  // Filter siswa berdasarkan nama secara realtime (case-insensitive)
   const filteredStudents = useMemo(() => {
-    return students.filter(
-      (s) =>
-        s.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        s.className.toLowerCase().includes(searchQuery.toLowerCase())
+    if (!searchQuery.trim()) return students;
+    return students.filter((s) =>
+      s.name.toLowerCase().includes(searchQuery.trim().toLowerCase())
     );
   }, [students, searchQuery]);
 
   return (
-    <View style={styles.tabContent}>
+    <View style={styles.container}>
+      {/* Search Bar Input */}
       <View style={styles.searchContainer}>
         <TextInput
           style={styles.searchInput}
-          placeholder="Cari nama siswa atau kelas..."
+          placeholder="🔍 Cari nama siswa..."
+          placeholderTextColor="#9CA3AF"
           value={searchQuery}
           onChangeText={setSearchQuery}
+          clearButtonMode="while-editing"
+          autoCorrect={false}
         />
-      </View>
-
-      <FlatList
-        data={filteredStudents}
-        keyExtractor={(item) => item.id}
-        showsVerticalScrollIndicator={false}
-        ListEmptyComponent={
-          <View style={styles.emptyContainer}>
-            <Text style={styles.emptyText}>Siswa tidak ditemukan.</Text>
-          </View>
-        }
-        renderItem={({ item }) => (
+        {searchQuery.length > 0 && (
           <TouchableOpacity
-            style={styles.studentCard}
-            onPress={() => onSelectStudent(item.id)}
+            style={styles.clearBtn}
+            onPress={() => setSearchQuery('')}
           >
-            <View style={styles.avatarBox}>
-              <Text style={styles.avatarText}>{item.avatar}</Text>
-            </View>
-            <View style={{ flex: 1, marginLeft: 12 }}>
-              <Text style={styles.studentName}>{item.name}</Text>
-              <Text style={styles.studentClass}>{item.className}</Text>
-            </View>
-            <Text style={styles.chevron}>›</Text>
+            <Text style={styles.clearBtnText}>✕</Text>
           </TouchableOpacity>
         )}
-      />
+      </View>
+
+      {/* List / Empty State */}
+      <ScrollView style={styles.listContent} showsVerticalScrollIndicator={false}>
+        {filteredStudents.length === 0 ? (
+          <View style={styles.emptyContainer}>
+            <Text style={styles.emptyIcon}>🔍</Text>
+            <Text style={styles.emptyTitle}>Siswa Tidak Ditemukan</Text>
+            <Text style={styles.emptySub}>
+              {searchQuery.trim()
+                ? `Tidak ada siswa yang cocok dengan kata kunci "${searchQuery}"`
+                : 'Belum ada data siswa terdaftar.'}
+            </Text>
+          </View>
+        ) : (
+          filteredStudents.map((student) => (
+            <TouchableOpacity
+              key={student.id}
+              style={styles.studentCard}
+              onPress={() => onSelectStudent(student.id)}
+            >
+              <Text style={styles.studentAvatar}>{student.avatar || '👦'}</Text>
+              <View style={styles.studentInfo}>
+                <Text style={styles.studentName}>{student.name}</Text>
+                <Text style={styles.studentSub}>
+                  {student.gender === 'M' ? 'Laki-laki' : 'Perempuan'} • Nisn: {student.id}
+                </Text>
+              </View>
+              <Text style={styles.chevron}>›</Text>
+            </TouchableOpacity>
+          ))
+        )}
+      </ScrollView>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  tabContent: {
+  container: {
     flex: 1,
-    padding: 16,
+    paddingHorizontal: 16,
+    paddingTop: 12,
   },
   searchContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
     marginBottom: 12,
   },
   searchInput: {
-    backgroundColor: '#FFFFFF',
-    borderWidth: 1,
-    borderColor: '#D1D5DB',
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
+    flex: 1,
+    height: 44,
     fontSize: 14,
+    color: '#111827',
+  },
+  clearBtn: {
+    padding: 6,
+  },
+  clearBtnText: {
+    fontSize: 14,
+    color: '#9CA3AF',
+    fontWeight: '700',
+  },
+  listContent: {
+    flex: 1,
   },
   studentCard: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#FFFFFF',
-    padding: 12,
+    padding: 14,
     borderRadius: 10,
-    marginBottom: 8,
+    marginBottom: 10,
     borderWidth: 1,
     borderColor: '#E5E7EB',
   },
-  avatarBox: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: '#F3F4F6',
-    justifyContent: 'center',
-    alignItems: 'center',
+  studentAvatar: {
+    fontSize: 24,
+    marginRight: 12,
   },
-  avatarText: {
-    fontSize: 20,
+  studentInfo: {
+    flex: 1,
   },
   studentName: {
-    fontSize: 14,
+    fontSize: 15,
     fontWeight: '700',
     color: '#111827',
   },
-  studentClass: {
+  studentSub: {
     fontSize: 12,
     color: '#6B7280',
+    marginTop: 2,
   },
   chevron: {
     fontSize: 20,
     color: '#9CA3AF',
+    fontWeight: '600',
   },
   emptyContainer: {
-    padding: 20,
+    backgroundColor: '#FFFFFF',
+    padding: 24,
+    borderRadius: 12,
     alignItems: 'center',
+    marginTop: 20,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
   },
-  emptyText: {
-    color: '#9CA3AF',
+  emptyIcon: {
+    fontSize: 32,
+    marginBottom: 8,
+  },
+  emptyTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#374151',
+  },
+  emptySub: {
     fontSize: 13,
+    color: '#6B7280',
+    textAlign: 'center',
+    marginTop: 4,
   },
 });

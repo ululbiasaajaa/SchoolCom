@@ -1,26 +1,42 @@
-import { PriorityType, StatusType } from '../types/schoolcom';
+import { StatusType } from '../types/schoolcom';
 
-export const getStatusBadgeStyle = (status: StatusType) => {
-  switch (status) {
-    case 'Pending':
-      return { bg: '#FEF3C7', text: '#D97706', symbol: '🟡' };
-    case 'Follow-up':
-      return { bg: '#DBEAFE', text: '#2563EB', symbol: '🔵' };
-    case 'Resolved':
-      return { bg: '#D1FAE5', text: '#059669', symbol: '🟢' };
-    default:
-      return { bg: '#E5E7EB', text: '#374151', symbol: '⚪' };
-  }
-};
+export interface BadgeStyle {
+  bg: string;
+  text: string;
+  symbol: string;
+}
 
-export const getPriorityBadgeStyle = (priority: PriorityType) => {
-  switch (priority) {
-    case 'High':
-      return { bg: '#FEE2E2', text: '#DC2626' };
-    case 'Medium':
-      return { bg: '#FFEDD5', text: '#EA580C' };
-    case 'Low':
-    default:
-      return { bg: '#F3F4F6', text: '#4B5563' };
+export function getStatusBadgeStyle(status: string | StatusType): BadgeStyle {
+  const normalizedStatus = (status || '').toString().toLowerCase();
+
+  if (normalizedStatus.includes('pending')) {
+    return {
+      bg: '#FEF3C7',
+      text: '#D97706',
+      symbol: '🟡',
+    };
   }
-};
+
+  if (normalizedStatus.includes('follow')) {
+    return {
+      bg: '#DBEAFE',
+      text: '#2563EB',
+      symbol: '🔵',
+    };
+  }
+
+  if (normalizedStatus.includes('resolve')) {
+    return {
+      bg: '#D1FAE5',
+      text: '#059669',
+      symbol: '🟢',
+    };
+  }
+
+  // Graceful Fallback jika status tidak dikenal atau berupa ID
+  return {
+    bg: '#F3F4F6',
+    text: '#4B5563',
+    symbol: '⚪',
+  };
+}

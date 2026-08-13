@@ -1,100 +1,117 @@
-import {
-    addDoc,
-    collection,
-    doc,
-    getDoc,
-    getDocs,
-    onSnapshot,
-    orderBy,
-    query,
-    serverTimestamp,
-    Unsubscribe,
-    updateDoc,
-} from 'firebase/firestore';
+import { collection, doc, onSnapshot, writeBatch } from 'firebase/firestore';
 import { db } from '../config/firebase';
 import { Student } from '../types/schoolcom';
 
 const STUDENTS_COLLECTION = 'students';
 
-// Helper internal untuk mengonversi data Firestore ke type Student
-const mapStudentDoc = (docSnap: any): Student => {
-  const data = docSnap.data();
-  return {
-    id: docSnap.id,
-    name: data.name || '',
-    avatar: data.avatar || '👦',
-    className: data.className || '',
-    dob: data.dob || '',
-    parents: data.parents || [],
-  };
+// Data default lengkap dengan field gender
+const INITIAL_STUDENTS: Student[] = [
+  {
+    id: 's1',
+    name: 'Aisyah Putri',
+    className: 'Kelas TK-A',
+    avatar: '👧',
+    gender: 'F', // Fix: Perempuan
+    dob: '2021-04-10',
+    parents: [{ name: 'Ibu Aisyah', phone: '6281234567890', relationship: 'Ibu' }],
+  },
+  {
+    id: 's2',
+    name: 'Ananda Pratama',
+    className: 'Kelas TK-A',
+    avatar: '👦',
+    gender: 'M', // Fix: Laki-laki
+    dob: '2021-08-22',
+    parents: [{ name: 'Bapak Ananda', phone: '6289876543210', relationship: 'Ayah' }],
+  },
+  {
+    id: 's3',
+    name: 'Kenzo Alfarizi',
+    className: 'Kelas TK-A',
+    avatar: '🧒',
+    gender: 'M', // Fix: Laki-laki
+    dob: '2021-01-15',
+    parents: [{ name: 'Ibu Kenzo', phone: '628555444333', relationship: 'Ibu' }],
+  },
+  {
+    id: 's4',
+    name: 'Rasyid',
+    className: 'Kelas TK-A',
+    avatar: '👦',
+    gender: 'M', // Fix: Laki-laki
+    dob: '2021-06-15',
+    parents: [
+      {
+        name: 'Orang Tua Rasyid',
+        phone: '62895414781707',
+        relationship: 'Orang Tua / Wali',
+      },
+    ],
+  },
+];
+
+// Seed serentak dengan writeBatch agar masuk sekaligus ke Firestore jika DB kosong
+const autoSeedIfEmpty = async (currentData: Student[]) => {
+  if (currentData.length === 0) {
+    console.log('Database kosong, melakukan auto-seed batch data siswa...');
+    try {
+      const batch = writeBatch(db);
+      INITIAL_STUDENTS.forEach((student) => {
+        const studentRef = doc(db, STUDENTS_COLLECTION, student.id);
+        batch.set(studentRef, student);
+      });
+      await batch.commit();
+      console.log('Auto-seed batch berhasil!');
+    } catch (err) {
+      console.error('Gagal auto-seed data siswa:', err);
+    }
+  }
 };
 
 /**
- * Realtime Listener untuk daftar siswa
+ * Realtime Listener Data Siswa (Batch & Anti Kedap-Kedip)
  */
-export const subscribeToStudents = (
-  callback: (students: Student[]) => void
-): Unsubscribe => {
-  const q = query(collection(db, STUDENTS_COLLECTION), orderBy('name', 'asc'));
+export const subscribeToStudents = (callback: (students: Student[]) => void) => {
+  const colRef = collection(db, STUDENTS_COLLECTION);
+
   return onSnapshot(
-    q,
+    colRef,
+    { includeMetadataChanges: false },
     (snapshot) => {
-      const students = snapshot.docs.map(mapStudentDoc);
-      callback(students);
+      const studentsData: Student[] = snapshot.docs.map((docSnap) => {
+        const data = docSnap.data();
+        
+        // Smart fallback gender jika data di Firestore belum punya field gender
+        const inferredGender = data.gender 
+          ? data.gender 
+          : (data.avatar === '👧' ? 'F' : 'M');
+
+        return {
+          id: docSnap.id,
+          name: data.name || '',
+          className: data.className || '',
+          avatar: data.avatar || '👦',
+          gender: inferredGender, // Fix: Gender ter-mapping dengan aman!
+          dob: data.dob || '',
+          parents: (data.parents || []).map((p: any) => ({
+            name: p.name || '',
+            phone: p.phone || '',
+            relationship: p.relationship || p.relation || 'Wali',
+          })),
+        };
+      });
+
+      // Urutkan siswa berdasarkan nama
+      studentsData.sort((a, b) => a.name.localeCompare(b.name));
+
+      if (studentsData.length === 0) {
+        autoSeedIfEmpty(studentsData);
+      }
+
+      callback(studentsData);
     },
     (error) => {
-      console.error('Error in subscribeToStudents:', error);
+      console.error('Error listening to students:', error);
     }
   );
-};
-
-/**
- * Mengambil seluruh daftar siswa diurutkan berdasarkan nama (One-time fetch)
- */
-export const getStudents = async (): Promise<Student[]> => {
-  const q = query(collection(db, STUDENTS_COLLECTION), orderBy('name', 'asc'));
-  const snapshot = await getDocs(q);
-  return snapshot.docs.map(mapStudentDoc);
-};
-
-/**
- * Mengambil data detail siswa berdasarkan document ID
- */
-export const getStudentById = async (studentId: string): Promise<Student | null> => {
-  const docRef = doc(db, STUDENTS_COLLECTION, studentId);
-  const docSnap = await getDoc(docRef);
-
-  if (!docSnap.exists()) {
-    return null;
-  }
-
-  return mapStudentDoc(docSnap);
-};
-
-/**
- * Menambahkan data siswa baru ke koleksi students
- */
-export const addStudent = async (
-  studentData: Omit<Student, 'id'>
-): Promise<string> => {
-  const docRef = await addDoc(collection(db, STUDENTS_COLLECTION), {
-    ...studentData,
-    createdAt: serverTimestamp(),
-    updatedAt: serverTimestamp(),
-  });
-  return docRef.id;
-};
-
-/**
- * Memperbarui data siswa berdasarkan document ID
- */
-export const updateStudent = async (
-  studentId: string,
-  data: Partial<Omit<Student, 'id'>>
-): Promise<void> => {
-  const docRef = doc(db, STUDENTS_COLLECTION, studentId);
-  await updateDoc(docRef, {
-    ...data,
-    updatedAt: serverTimestamp(),
-  });
 };
