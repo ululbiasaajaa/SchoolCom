@@ -1,6 +1,15 @@
-import { collection, doc, onSnapshot, writeBatch } from 'firebase/firestore';
+import {
+  addDoc,
+  collection,
+  deleteDoc,
+  doc,
+  onSnapshot,
+  serverTimestamp,
+  updateDoc,
+  writeBatch
+} from 'firebase/firestore';
 import { db } from '../config/firebase';
-import { Student } from '../types/schoolcom';
+import { Parent, Student } from '../types/schoolcom';
 
 const STUDENTS_COLLECTION = 'students';
 
@@ -62,7 +71,7 @@ const autoSeedIfEmpty = async (currentData: Student[]) => {
       });
       await batch.commit();
       console.log('Auto-seed batch berhasil!');
-    } catch (err) {
+    } catch (err: unknown) {
       console.error('Gagal auto-seed data siswa:', err);
     }
   }
@@ -86,18 +95,23 @@ export const subscribeToStudents = (callback: (students: Student[]) => void) => 
           ? data.gender 
           : (data.avatar === '👧' ? 'F' : 'M');
 
+        const rawParents = (data.parents || []) as Record<string, unknown>[];
+        const formattedParents: Parent[] = rawParents.map((p) => ({
+          name: typeof p.name === 'string' ? p.name : '',
+          phone: typeof p.phone === 'string' ? p.phone : '',
+          relationship: typeof p.relationship === 'string' 
+            ? p.relationship 
+            : (typeof p.relation === 'string' ? p.relation : 'Wali'),
+        }));
+
         return {
           id: docSnap.id,
-          name: data.name || '',
-          className: data.className || '',
-          avatar: data.avatar || '👦',
+          name: typeof data.name === 'string' ? data.name : '',
+          className: typeof data.className === 'string' ? data.className : '',
+          avatar: typeof data.avatar === 'string' ? data.avatar : '👦',
           gender: inferredGender, // Fix: Gender ter-mapping dengan aman!
-          dob: data.dob || '',
-          parents: (data.parents || []).map((p: any) => ({
-            name: p.name || '',
-            phone: p.phone || '',
-            relationship: p.relationship || p.relation || 'Wali',
-          })),
+          dob: typeof data.dob === 'string' ? data.dob : '',
+          parents: formattedParents,
         };
       });
 
@@ -110,8 +124,60 @@ export const subscribeToStudents = (callback: (students: Student[]) => void) => 
 
       callback(studentsData);
     },
-    (error) => {
+    (error: unknown) => {
       console.error('Error listening to students:', error);
     }
   );
+};
+
+// ==========================================
+// MANAGEMENT FEATURES (ADMIN ONLY)
+// ==========================================
+
+export type StudentInput = Omit<Student, 'id'>;
+
+/**
+ * Tambah Siswa Baru (Admin Only)
+ */
+export const addStudent = async (studentData: StudentInput): Promise<string> => {
+  try {
+    const docRef = await addDoc(collection(db, STUDENTS_COLLECTION), {
+      ...studentData,
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    });
+    return docRef.id;
+  } catch (error: unknown) {
+    console.error('Error adding student:', error);
+    throw error;
+  }
+};
+
+/**
+ * Update Data Siswa (Admin Only)
+ */
+export const updateStudent = async (studentId: string, studentData: Partial<StudentInput>): Promise<void> => {
+  try {
+    const studentRef = doc(db, STUDENTS_COLLECTION, studentId);
+    await updateDoc(studentRef, {
+      ...studentData,
+      updatedAt: serverTimestamp(),
+    });
+  } catch (error: unknown) {
+    console.error('Error updating student:', error);
+    throw error;
+  }
+};
+
+/**
+ * Hapus Siswa (Admin Only)
+ */
+export const deleteStudent = async (studentId: string): Promise<void> => {
+  try {
+    const studentRef = doc(db, STUDENTS_COLLECTION, studentId);
+    await deleteDoc(studentRef);
+  } catch (error: unknown) {
+    console.error('Error deleting student:', error);
+    throw error;
+  }
 };

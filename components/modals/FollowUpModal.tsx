@@ -10,7 +10,7 @@ import {
   View,
 } from 'react-native';
 
-import { Incident, StatusType } from '../../types/schoolcom';
+import { FollowUpLog, Incident, StatusType } from '../../types/schoolcom';
 import { getStatusBadgeStyle } from '../../utils/badges';
 
 interface FollowUpModalProps {
@@ -52,9 +52,9 @@ export default function FollowUpModal({
   const safeStatus = getSafeStatus(incident.status);
   const badge = getStatusBadgeStyle(safeStatus);
 
-  // Filter hanya log yang mempunyai isi catatan (note tidak kosong)
+  // Filter hanya log yang mempunyai isi catatan (note tidak kosong) dengan tipe data eksplisit FollowUpLog
   const validLogs = (incident.followUpLogs || []).filter(
-    (log) => log.note && log.note.trim().length > 0
+    (log: FollowUpLog) => log.note && log.note.trim().length > 0
   );
 
   const handleSave = async () => {
@@ -96,11 +96,11 @@ export default function FollowUpModal({
             {validLogs.length > 0 && (
               <View style={styles.logsSection}>
                 <Text style={styles.label}>Riwayat Catatan Tindak Lanjut ({validLogs.length}):</Text>
-                {validLogs.map((log, index) => (
+                {validLogs.map((log: FollowUpLog & { author?: string; date?: string }, index: number) => (
                   <View key={index} style={styles.logCard}>
                     <Text style={styles.logNote}>{log.note}</Text>
                     <Text style={styles.logMeta}>
-                      {log.author || 'Guru'} • {log.date || 'Baru saja'}
+                      {log.author || 'Guru'} • {log.updatedAt || log.date || 'Baru saja'}
                     </Text>
                   </View>
                 ))}
@@ -136,14 +136,15 @@ export default function FollowUpModal({
               })}
             </View>
 
-            {/* Tambahkan Catatan Log Baru */}
-            <Text style={styles.label}>Tambah Catatan Perkembangan (Opsional)</Text>
+            {/* Tambahkan Catatan Log Baru (Hardened dengan maxLength 1000) */}
+            <Text style={styles.label}>Tambah Catatan Perkembangan (Opsional - Maks. 1000 Karakter)</Text>
             <TextInput
               style={[styles.textArea, isSubmitting && styles.disabledOpacity]}
               placeholder="Contoh: Sudah diajak bicara dengan orang tua, anak berjanji tidak mengulangi..."
               placeholderTextColor="#9CA3AF"
               multiline
               numberOfLines={3}
+              maxLength={1000}
               value={logText}
               onChangeText={setLogText}
               editable={!isSubmitting}

@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   Modal,
   ScrollView,
   StyleSheet,
@@ -26,8 +27,17 @@ interface NewIncidentModalProps {
   }) => Promise<void> | void;
 }
 
-const CATEGORIES: CategoryType[] = ['Behavior', 'Academic', 'Health', 'Other'];
-const PRIORITIES: PriorityType[] = ['Low', 'Medium', 'High'];
+const CATEGORIES: CategoryType[] = [
+  'Observation',
+  'Behavior',
+  'Academic',
+  'Social',
+  'Incident',
+  'Health',
+  'Other',
+];
+
+const PRIORITIES: PriorityType[] = ['Low', 'Medium', 'High', 'Critical'];
 
 export default function NewIncidentModal({
   visible,
@@ -56,11 +66,15 @@ export default function NewIncidentModal({
 
   const handleSave = async () => {
     if (!selectedStudentId) {
-      alert('Pilih siswa terlebih dahulu.');
+      Alert.alert('Peringatan', 'Pilih siswa terlebih dahulu.');
       return;
     }
-    if (!description.trim()) {
-      alert('Deskripsi observasi/insiden wajib diisi.');
+
+    const trimmedDescription = description.trim();
+    const trimmedAction = actionTaken.trim();
+
+    if (!trimmedDescription) {
+      Alert.alert('Peringatan', 'Deskripsi observasi/insiden wajib diisi.');
       return;
     }
 
@@ -70,15 +84,28 @@ export default function NewIncidentModal({
         studentId: selectedStudentId,
         category,
         priority,
-        description: description.trim(),
-        actionTaken: actionTaken.trim(),
+        description: trimmedDescription,
+        actionTaken: trimmedAction,
       });
-      // Jika berhasil, resetting & penutupan diserahkan ke parent/useEffect
-    } catch (error) {
+    } catch (error: unknown) {
       console.error('Error submitting incident:', error);
-      // Input tetap dipertahankan jika throw error
     } finally {
       setIsSubmitting(false);
+    }
+  };
+
+  const getPriorityStyle = (prio: PriorityType, isSelected: boolean) => {
+    if (!isSelected) return styles.gridChip;
+    switch (prio) {
+      case 'Critical':
+        return [styles.gridChip, styles.chipCritical];
+      case 'High':
+        return [styles.gridChip, styles.chipHigh];
+      case 'Medium':
+        return [styles.gridChip, styles.chipMedium];
+      case 'Low':
+      default:
+        return [styles.gridChip, styles.chipLow];
     }
   };
 
@@ -92,7 +119,7 @@ export default function NewIncidentModal({
             {/* Pilih Siswa */}
             <Text style={styles.label}>Pilih Siswa *</Text>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.pickerScroll}>
-              {students.map((s) => {
+              {students.map((s: Student) => {
                 const isSelected = s.id === selectedStudentId;
                 return (
                   <TouchableOpacity
@@ -106,7 +133,7 @@ export default function NewIncidentModal({
                     onPress={() => setSelectedStudentId(s.id)}
                   >
                     <Text style={[styles.chipText, isSelected && styles.chipTextActive]}>
-                      {s.avatar || '👦'} {s.name}
+                      {s.avatar || '👦'} {s.name} ({s.className})
                     </Text>
                   </TouchableOpacity>
                 );
@@ -145,8 +172,7 @@ export default function NewIncidentModal({
                     key={prio}
                     disabled={isSubmitting}
                     style={[
-                      styles.gridChip,
-                      isSelected && styles.gridChipActivePriority,
+                      getPriorityStyle(prio, isSelected),
                       isSubmitting && styles.disabledOpacity,
                     ]}
                     onPress={() => setPriority(prio)}
@@ -157,27 +183,29 @@ export default function NewIncidentModal({
               })}
             </View>
 
-            {/* Deskripsi */}
-            <Text style={styles.label}>Deskripsi Observasi / Kejadian *</Text>
+            {/* Deskripsi (Hardened dengan maxLength 1000) */}
+            <Text style={styles.label}>Deskripsi Observasi / Kejadian * (Maks. 1000 Karakter)</Text>
             <TextInput
               style={[styles.textArea, isSubmitting && styles.disabledOpacity]}
               placeholder="Contoh: Menangis karena rebutan mainan balok..."
               placeholderTextColor="#9CA3AF"
               multiline
               numberOfLines={3}
+              maxLength={1000}
               value={description}
               onChangeText={setDescription}
               editable={!isSubmitting}
             />
 
-            {/* Tindakan Awal */}
-            <Text style={styles.label}>Tindakan Langsung Guru (Opsional)</Text>
+            {/* Tindakan Awal (Hardened dengan maxLength 1000) */}
+            <Text style={styles.label}>Tindakan Langsung Guru (Opsional - Maks. 1000 Karakter)</Text>
             <TextInput
               style={[styles.textArea, isSubmitting && styles.disabledOpacity]}
               placeholder="Contoh: Menenangkan dan mengajak bicara secara personal..."
               placeholderTextColor="#9CA3AF"
               multiline
               numberOfLines={2}
+              maxLength={1000}
               value={actionTaken}
               onChangeText={setActionTaken}
               editable={!isSubmitting}
@@ -275,9 +303,21 @@ const styles = StyleSheet.create({
     backgroundColor: '#2563EB',
     borderColor: '#2563EB',
   },
-  gridChipActivePriority: {
+  chipLow: {
+    backgroundColor: '#059669',
+    borderColor: '#059669',
+  },
+  chipMedium: {
+    backgroundColor: '#2563EB',
+    borderColor: '#2563EB',
+  },
+  chipHigh: {
     backgroundColor: '#D97706',
     borderColor: '#D97706',
+  },
+  chipCritical: {
+    backgroundColor: '#DC2626',
+    borderColor: '#DC2626',
   },
   chipText: {
     fontSize: 12,

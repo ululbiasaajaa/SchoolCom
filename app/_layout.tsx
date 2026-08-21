@@ -11,7 +11,7 @@ export default function RootLayout() {
   const segments = useSegments();
   const router = useRouter();
 
-  // 1. Listen status auth & restore session dari AsyncStorage
+  // 1. Listen status auth dari Firebase Auth SDK
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
       setUser(currentUser);
@@ -23,17 +23,18 @@ export default function RootLayout() {
     return () => unsubscribe();
   }, []);
 
-  // 2. Navigation Guard / Protected Routes Logic
+  // 2. Navigation Guard / Protected Routes Logic Hardened
   useEffect(() => {
     if (isInitializing) return;
 
-    const inAuthGroup = segments[0] === 'login';
+    // Cek apakah user sedang berada di halaman login
+    const inLoginScreen = segments[0] === 'login';
 
-    if (!user && !inAuthGroup) {
-      // Jika belum/tidak login dan mencoba masuk ke protected route -> redirect ke login
+    if (!user && !inLoginScreen) {
+      // Skenario Unauthenticated / Logout -> Paksa redirect ke Login
       router.replace('/login');
-    } else if (user && inAuthGroup) {
-      // Jika sudah login tapi masih di layar login -> redirect ke dashboard
+    } else if (user && inLoginScreen) {
+      // Skenario Authenticated tetapi mencoba buka Login -> Redirect ke Tabs
       router.replace('/(tabs)');
     }
   }, [user, segments, isInitializing]);

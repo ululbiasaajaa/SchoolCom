@@ -1,5 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import {
+  ActivityIndicator,
+  Alert,
   ScrollView,
   StyleSheet,
   Text,
@@ -10,30 +12,46 @@ import {
 
 import { CategoryType, Incident, StatusType, Student } from '../../types/schoolcom';
 import { getStatusBadgeStyle } from '../../utils/badges';
+import { exportStudentIncidentReportPDF } from '../../utils/pdfGenerator';
 
 interface StudentProfileViewProps {
   student: Student;
   studentIncidents: Incident[];
+  userRole?: 'teacher' | 'admin';
   onBack: () => void;
   onOpenWaModal: (student: Student, incident: Incident | null) => void;
   onOpenNewIncident: (studentId: string) => void;
   onOpenFollowUpModal: (incident: Incident) => void;
+  onOpenEditStudent?: () => void;
 }
 
-const CATEGORIES: ('All' | CategoryType)[] = ['All', 'Behavior', 'Academic', 'Health', 'Other'];
+const CATEGORIES: ('All' | CategoryType)[] = [
+  'All',
+  'Observation',
+  'Behavior',
+  'Academic',
+  'Social',
+  'Incident',
+  'Health',
+  'Other',
+];
+
 const STATUSES: ('All' | StatusType)[] = ['All', 'Pending', 'Follow-up', 'Resolved'];
 
 export default function StudentProfileView({
   student,
   studentIncidents,
+  userRole = 'teacher',
   onBack,
   onOpenWaModal,
   onOpenNewIncident,
   onOpenFollowUpModal,
+  onOpenEditStudent,
 }: StudentProfileViewProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedStatus, setSelectedStatus] = useState<'All' | StatusType>('All');
   const [selectedCategory, setSelectedCategory] = useState<'All' | CategoryType>('All');
+  const [isExportingPdf, setIsExportingPdf] = useState<boolean>(false);
 
   // Filter & Sorting Incident Khusus Siswa Ini
   const filteredIncidents = useMemo(() => {
@@ -55,11 +73,28 @@ export default function StudentProfileView({
     return result.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
   }, [studentIncidents, selectedStatus, selectedCategory, searchQuery]);
 
+  // Handler Export Rekap Perilaku PDF
+  const handleExportIncidentPdf = async () => {
+    setIsExportingPdf(true);
+    try {
+      await exportStudentIncidentReportPDF(
+        student,
+        studentIncidents,
+        userRole === 'admin' ? 'Kepala Sekolah / Admin' : 'Guru Kelas'
+      );
+    } catch (error) {
+      console.error('Error triggering incident PDF export:', error);
+      Alert.alert('Gagal Export PDF', 'Terjadi kesalahan saat memproses laporan PDF.');
+    } finally {
+      setIsExportingPdf(false);
+    }
+  };
+
   return (
     <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
       {/* Header Navigation Back */}
       <TouchableOpacity style={styles.backBtn} onPress={onBack}>
-        <Text style={styles.backBtnText}>← Kembali ke Daftar Siswa</Text>
+        <Text style={styles.backBtnText}>← Kembali</Text>
       </TouchableOpacity>
 
       {/* Profile Header Card */}
@@ -67,16 +102,39 @@ export default function StudentProfileView({
         <Text style={styles.avatar}>{student.avatar || '👦'}</Text>
         <Text style={styles.studentName}>{student.name}</Text>
         <Text style={styles.studentSub}>
-          {student.gender === 'M' ? 'Laki-laki' : 'Perempuan'} • NISN: {student.id}
+          {student.gender === 'F' ? 'Perempuan' : 'Laki-laki'} • Kelas: {student.className || 'TK-A'}
         </Text>
 
-        {/* Quick Action Button WhatsApp Ortu */}
-        <TouchableOpacity
-          style={styles.waBtn}
-          onPress={() => onOpenWaModal(student, null)}
-        >
-          <Text style={styles.waBtnText}>💬 Hubungi Orang Tua (WhatsApp)</Text>
-        </TouchableOpacity>
+        {/* Action Buttons Row */}
+        <View style={styles.actionBtnRow}>
+          <TouchableOpacity
+            style={styles.waBtn}
+            onPress={() => onOpenWaModal(student, null)}
+          >
+            <Text style={styles.waBtnText}>💬 Hubungi Orang Tua</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.pdfBtn, isExportingPdf && styles.disabledBtn]}
+            onPress={handleExportIncidentPdf}
+            disabled={isExportingPdf}
+          >
+            {isExportingPdf ? (
+              <ActivityIndicator size="small" color="#059669" />
+            ) : (
+              <Text style={styles.pdfBtnText}>📄 Export PDF Rekap</Text>
+            )}
+          </TouchableOpacity>
+
+          {userRole === 'admin' && onOpenEditStudent && (
+            <TouchableOpacity
+              style={styles.editBtn}
+              onPress={onOpenEditStudent}
+            >
+              <Text style={styles.editBtnText}>✏️ Edit</Text>
+            </TouchableOpacity>
+          )}
+        </View>
       </View>
 
       {/* Button Tambah Incident Khusus Siswa Ini */}
@@ -154,7 +212,6 @@ export default function StudentProfileView({
         </View>
       ) : (
         filteredIncidents.map((item) => {
-          // Validasi & Sanitasi Status agar tidak bocor ID Firestore
           const rawStatus = (item.status || '').toString();
           const isValidStatus = ['Pending', 'Follow-up', 'Resolved'].includes(rawStatus);
           const safeStatus: StatusType = isValidStatus ? (rawStatus as StatusType) : 'Pending';
@@ -166,6 +223,7 @@ export default function StudentProfileView({
               key={item.id}
               style={styles.card}
               onPress={() => onOpenFollowUpModal(item)}
+              activeOpacity={0.7}
             >
               <View style={styles.cardRowBetween}>
                 <Text style={styles.categoryBadge}>{item.category || 'Incident'}</Text>
@@ -181,7 +239,6 @@ export default function StudentProfileView({
                 Oleh: {item.teacherName || 'Guru'} • {item.createdAt}
               </Text>
 
-              {/* Status Log Count */}
               {item.followUpLogs && item.followUpLogs.length > 0 && (
                 <View style={styles.logContainer}>
                   <Text style={styles.logText}>
@@ -201,6 +258,7 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     padding: 16,
+    backgroundColor: '#F3F4F6',
   },
   backBtn: {
     marginBottom: 12,
@@ -234,9 +292,15 @@ const styles = StyleSheet.create({
     marginTop: 2,
     marginBottom: 12,
   },
+  actionBtnRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'center',
+    gap: 8,
+  },
   waBtn: {
     backgroundColor: '#DCFCE7',
-    paddingHorizontal: 14,
+    paddingHorizontal: 12,
     paddingVertical: 8,
     borderRadius: 8,
     borderWidth: 1,
@@ -246,6 +310,37 @@ const styles = StyleSheet.create({
     color: '#15803D',
     fontSize: 12,
     fontWeight: '600',
+  },
+  pdfBtn: {
+    backgroundColor: '#D1FAE5',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#A7F3D0',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  pdfBtnText: {
+    color: '#047857',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  editBtn: {
+    backgroundColor: '#EFF6FF',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#BFDBFE',
+  },
+  editBtnText: {
+    color: '#1D4ED8',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  disabledBtn: {
+    opacity: 0.6,
   },
   primaryBtn: {
     backgroundColor: '#2563EB',

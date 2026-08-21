@@ -1,18 +1,19 @@
 import { useRouter } from 'expo-router';
 import React, { useState } from 'react';
 import {
-    ActivityIndicator,
-    Alert,
-    Keyboard,
-    KeyboardAvoidingView,
-    Platform,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    TouchableWithoutFeedback,
-    View,
+  ActivityIndicator,
+  Alert,
+  Keyboard,
+  KeyboardAvoidingView,
+  Platform,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  TouchableWithoutFeedback,
+  View,
 } from 'react-native';
+
 import { loginWithEmail } from '../service/authService';
 
 export default function LoginScreen() {
@@ -32,11 +33,16 @@ export default function LoginScreen() {
       await loginWithEmail(email.trim(), password);
       // Setelah login berhasil, arahkan ke halaman utama (Dashboard)
       router.replace('/');
-    } catch (error: any) {
+    } catch (error: unknown) {
       let errorMessage = 'Gagal melakukan login. Silakan coba lagi.';
-      if (error.code === 'auth/invalid-credential' || error.code === 'auth/user-not-found' || error.code === 'auth/wrong-password') {
+      const err = error as { code?: string };
+      if (
+        err.code === 'auth/invalid-credential' ||
+        err.code === 'auth/user-not-found' ||
+        err.code === 'auth/wrong-password'
+      ) {
         errorMessage = 'Email atau password yang Anda masukkan salah.';
-      } else if (error.code === 'auth/invalid-email') {
+      } else if (err.code === 'auth/invalid-email') {
         errorMessage = 'Format email tidak valid.';
       }
       Alert.alert('Login Gagal', errorMessage);

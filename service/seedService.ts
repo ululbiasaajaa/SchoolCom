@@ -1,7 +1,7 @@
 import {
-    doc,
-    serverTimestamp,
-    setDoc
+  doc,
+  serverTimestamp,
+  setDoc
 } from 'firebase/firestore';
 import { db } from '../config/firebase';
 import { Student } from '../types/schoolcom';
@@ -44,7 +44,7 @@ export const seedRasyidStudent = async (): Promise<boolean> => {
 
     console.log('✅ Data Siswa Tester (Rasyid) BERHASIL ditambahkan ke Firestore!');
     return true;
-  } catch (error) {
+  } catch (error: unknown) {
     console.error('❌ Error saat menambahkan data Rasyid:', error);
     throw error;
   }

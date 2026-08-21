@@ -8,6 +8,10 @@
     "scheme": "schoolcom",
     "userInterfaceStyle": "light",
     "newArchEnabled": true,
+    "updates": {
+      "enabled": false,
+      "checkAutomatically": "NEVER"
+    },
     "ios": {
       "supportsTablet": true
     },

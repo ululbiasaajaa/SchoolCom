@@ -12,8 +12,41 @@ import { Student } from '../../types/schoolcom';
 
 interface StudentListViewProps {
   students: Student[];
-  onSelectStudent: (studentId: string) => void;
+  onSelectStudent?: (studentId: string) => void;
 }
+
+// 1. Komponen Item Row Terpisah yang Di-memoize untuk Mencegah Re-render Masif Saat Typing Search
+const StudentListItem = React.memo(
+  ({
+    student,
+    onSelectStudent,
+  }: {
+    student: Student;
+    onSelectStudent?: (studentId: string) => void;
+  }) => {
+    const rawGender = student.gender;
+    const genderText = rawGender ? (rawGender === 'M' ? 'Laki-laki' : 'Perempuan') : null;
+    const classText = student.className ? `Kelas ${student.className}` : null;
+    const subTextParts = [classText, genderText, `ID: ${student.id}`].filter(Boolean);
+
+    return (
+      <TouchableOpacity
+        style={styles.studentCard}
+        onPress={() => onSelectStudent && onSelectStudent(student.id)}
+        activeOpacity={onSelectStudent ? 0.7 : 1}
+      >
+        <Text style={styles.studentAvatar}>{student.avatar || '👦'}</Text>
+        <View style={styles.studentInfo}>
+          <Text style={styles.studentName}>{student.name}</Text>
+          <Text style={styles.studentSub}>{subTextParts.join(' • ')}</Text>
+        </View>
+        {onSelectStudent && <Text style={styles.chevron}>›</Text>}
+      </TouchableOpacity>
+    );
+  }
+);
+
+StudentListItem.displayName = 'StudentListItem';
 
 export default function StudentListView({
   students,
@@ -24,7 +57,7 @@ export default function StudentListView({
   // Filter siswa berdasarkan nama secara realtime (case-insensitive)
   const filteredStudents = useMemo(() => {
     if (!searchQuery.trim()) return students;
-    return students.filter((s) =>
+    return students.filter((s: Student) =>
       s.name.toLowerCase().includes(searchQuery.trim().toLowerCase())
     );
   }, [students, searchQuery]);
@@ -65,21 +98,12 @@ export default function StudentListView({
             </Text>
           </View>
         ) : (
-          filteredStudents.map((student) => (
-            <TouchableOpacity
+          filteredStudents.map((student: Student) => (
+            <StudentListItem
               key={student.id}
-              style={styles.studentCard}
-              onPress={() => onSelectStudent(student.id)}
-            >
-              <Text style={styles.studentAvatar}>{student.avatar || '👦'}</Text>
-              <View style={styles.studentInfo}>
-                <Text style={styles.studentName}>{student.name}</Text>
-                <Text style={styles.studentSub}>
-                  {student.gender === 'M' ? 'Laki-laki' : 'Perempuan'} • Nisn: {student.id}
-                </Text>
-              </View>
-              <Text style={styles.chevron}>›</Text>
-            </TouchableOpacity>
+              student={student}
+              onSelectStudent={onSelectStudent}
+            />
           ))
         )}
       </ScrollView>

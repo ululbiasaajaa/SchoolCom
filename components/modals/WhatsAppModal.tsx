@@ -87,7 +87,7 @@ export default function WhatsAppModal({
           <Text style={styles.modalTitle}>Kirim Laporan via WhatsApp</Text>
 
           <Text style={styles.inputLabel}>Pilih Penerima (Orang Tua / Wali)</Text>
-          {student?.parents.map((p, idx) => {
+          {student?.parents.map((p: Parent, idx: number) => {
             const isSelected = waSelectedParent?.phone === p.phone;
             const relationText = p.relationship || (p as any).relation || 'Wali';
             return (
