@@ -28,6 +28,7 @@ import {
 } from '../../types/schoolcom';
 import { getStatusBadgeStyle } from '../../utils/badges';
 import { DateFilterType, matchesDateFilter } from '../../utils/dateParser';
+import BroadcastModal from '../modals/BroadcastModal';
 import StudentListView from './StudentListView';
 
 interface AdminDashboardViewProps {
@@ -41,6 +42,7 @@ interface AdminDashboardViewProps {
   };
   onOpenAddStudent?: () => void;
   onSelectStudent?: (studentId: string) => void;
+  adminName?: string;
 }
 
 const CATEGORIES: ('All' | CategoryType)[] = [
@@ -74,6 +76,7 @@ export default function AdminDashboardView({
   metrics,
   onOpenAddStudent,
   onSelectStudent,
+  adminName = 'Admin Sekolah',
 }: AdminDashboardViewProps) {
   // Tab Switcher Utama Admin
   const [activeAdminTab, setActiveAdminTab] = useState<
@@ -91,6 +94,9 @@ export default function AdminDashboardView({
   const [isUsersLoading, setIsUsersLoading] = useState<boolean>(true);
   const [userRoleFilter, setUserRoleFilter] = useState<'All' | 'admin' | 'teacher' | 'parent'>('All');
   const [userSearchQuery, setUserSearchQuery] = useState('');
+
+  // Broadcast Modal State
+  const [isBroadcastModalOpen, setIsBroadcastModalOpen] = useState<boolean>(false);
 
   // Form Modal States: Create User
   const [isCreateUserModalOpen, setIsCreateUserModalOpen] = useState<boolean>(false);
@@ -480,8 +486,20 @@ export default function AdminDashboardView({
         /* TAB 1: LAPORAN (EXISTING REPORTING DASHBOARD) */
         <ScrollView style={styles.tabContent} showsVerticalScrollIndicator={false}>
           <View style={styles.adminCard}>
-            <Text style={styles.adminTitle}>Dashboard Kepala Sekolah / Admin</Text>
-            <Text style={styles.adminSub}>Monitoring Keseluruhan Laporan & Aktivitas Guru</Text>
+            <View style={styles.cardRowBetween}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.adminTitle}>Dashboard Kepala Sekolah / Admin</Text>
+                <Text style={styles.adminSub}>Monitoring Keseluruhan Laporan & Aktivitas Guru</Text>
+              </View>
+
+              {/* TOMBOL BROADCAST PENGUMUMAN MASSAL */}
+              <TouchableOpacity
+                style={styles.broadcastHeaderBtn}
+                onPress={() => setIsBroadcastModalOpen(true)}
+              >
+                <Text style={styles.broadcastHeaderBtnText}>📢 Broadcast</Text>
+              </TouchableOpacity>
+            </View>
           </View>
 
           {/* Ringkasan Metrics */}
@@ -630,6 +648,13 @@ export default function AdminDashboardView({
           )}
         </ScrollView>
       )}
+
+      {/* MODAL 0: BROADCAST ANNOUNCEMENT */}
+      <BroadcastModal
+        visible={isBroadcastModalOpen}
+        adminName={adminName}
+        onClose={() => setIsBroadcastModalOpen(false)}
+      />
 
       {/* MODAL 1: CREATE NEW USER */}
       <Modal
@@ -1001,6 +1026,19 @@ const styles = StyleSheet.create({
     color: '#BFDBFE',
     fontSize: 12,
     marginTop: 4,
+  },
+  broadcastHeaderBtn: {
+    backgroundColor: '#FFFFFF',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 8,
+    alignSelf: 'center',
+    marginLeft: 8,
+  },
+  broadcastHeaderBtnText: {
+    color: '#2563EB',
+    fontSize: 12,
+    fontWeight: 'bold',
   },
   sectionHeader: {
     fontSize: 15,

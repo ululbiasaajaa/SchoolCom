@@ -116,3 +116,18 @@ export interface StudentAssessment {
   createdAt: string;
   updatedAt: string;
 }
+
+// ==========================================
+// BROADCAST ANNOUNCEMENT MODULE TYPES
+// ==========================================
+
+export type BroadcastTargetRole = 'all' | 'parent' | 'teacher';
+
+export interface BroadcastAnnouncement {
+  id?: string;
+  title: string;
+  message: string;
+  targetRole: BroadcastTargetRole;
+  createdByName: string;
+  createdAt: string;
+}
