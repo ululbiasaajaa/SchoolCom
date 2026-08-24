@@ -39,6 +39,46 @@ async function sendExpoPushNotifications(messages: PushMessagePayload[]): Promis
 }
 
 /**
+ * Helper untuk mendapatkan seluruh token milik Parent yang terhubung ke studentId tertentu
+ * (Mencari dari koleksi 'pushTokens' dan fallback ke 'users' jika token disimpan di dokumen user).
+ */
+async function getParentPushTokens(studentId: string): Promise<string[]> {
+  const tokens: Set<string> = new Set();
+
+  try {
+    // 1. Cari di koleksi 'pushTokens'
+    const qPushTokens = query(
+      collection(db, 'pushTokens'),
+      where('role', '==', 'parent'),
+      where('studentIds', 'array-contains', studentId)
+    );
+    const snapPush = await getDocs(qPushTokens);
+    snapPush.forEach((docSnap) => {
+      const data = docSnap.data();
+      if (data.pushToken) tokens.add(data.pushToken);
+    });
+
+    // 2. Fallback / Double Check di koleksi 'users' jika token tersimpan langsung di profil user
+    const qUsers = query(
+      collection(db, 'users'),
+      where('role', '==', 'parent'),
+      where('studentIds', 'array-contains', studentId)
+    );
+    const snapUsers = await getDocs(qUsers);
+    snapUsers.forEach((docSnap) => {
+      const data = docSnap.data();
+      if (data.pushToken) tokens.add(data.pushToken);
+      if (data.expoPushToken) tokens.add(data.expoPushToken);
+    });
+
+  } catch (err) {
+    console.error('[PushNotificationService] Error querying parent tokens:', err);
+  }
+
+  return Array.from(tokens);
+}
+
+/**
  * EVT-01 & EVT-02: Mengirim Notifikasi Insiden / Perilaku Baru ke Parent dari siswa terkait.
  */
 export async function notifyParentOnIncident(
@@ -48,32 +88,20 @@ export async function notifyParentOnIncident(
   titleText: string = 'Catatan Perilaku Baru'
 ): Promise<void> {
   try {
-    // Cari dokumen pushTokens milik Parent yang memiliki studentId ini
-    const q = query(
-      collection(db, 'pushTokens'),
-      where('role', '==', 'parent'),
-      where('studentIds', 'array-contains', studentId)
-    );
+    const parentTokens = await getParentPushTokens(studentId);
 
-    const snapshot = await getDocs(q);
-    if (snapshot.empty) {
+    if (parentTokens.length === 0) {
       console.log(`[PushNotificationService] Tidak ada Push Token terdaftar untuk Parent dari studentId: ${studentId}`);
       return;
     }
 
-    const messages: PushMessagePayload[] = [];
-    snapshot.forEach((docSnap) => {
-      const data = docSnap.data();
-      if (data.pushToken) {
-        messages.push({
-          to: data.pushToken,
-          sound: 'default',
-          title: `📋 ${titleText}`,
-          body: `Catatan ${category} untuk ${studentName} telah diperbarui oleh guru.`,
-          data: { studentId, type: 'incident' },
-        });
-      }
-    });
+    const messages: PushMessagePayload[] = parentTokens.map((token) => ({
+      to: token,
+      sound: 'default',
+      title: `📋 ${titleText}`,
+      body: `Catatan ${category} untuk ${studentName} telah diperbarui oleh guru.`,
+      data: { studentId, type: 'incident' },
+    }));
 
     await sendExpoPushNotifications(messages);
   } catch (error: unknown) {
@@ -91,28 +119,16 @@ export async function notifyParentOnAttendance(
   dateStr: string
 ): Promise<void> {
   try {
-    const q = query(
-      collection(db, 'pushTokens'),
-      where('role', '==', 'parent'),
-      where('studentIds', 'array-contains', studentId)
-    );
+    const parentTokens = await getParentPushTokens(studentId);
+    if (parentTokens.length === 0) return;
 
-    const snapshot = await getDocs(q);
-    if (snapshot.empty) return;
-
-    const messages: PushMessagePayload[] = [];
-    snapshot.forEach((docSnap) => {
-      const data = docSnap.data();
-      if (data.pushToken) {
-        messages.push({
-          to: data.pushToken,
-          sound: 'default',
-          title: '📅 Update Kehadiran Siswa',
-          body: `Status kehadiran ${studentName} pada ${dateStr} dicatat sebagai: ${statusLabel}.`,
-          data: { studentId, type: 'attendance' },
-        });
-      }
-    });
+    const messages: PushMessagePayload[] = parentTokens.map((token) => ({
+      to: token,
+      sound: 'default',
+      title: '📅 Update Kehadiran Siswa',
+      body: `Status kehadiran ${studentName} pada ${dateStr} dicatat sebagai: ${statusLabel}.`,
+      data: { studentId, type: 'attendance' },
+    }));
 
     await sendExpoPushNotifications(messages);
   } catch (error: unknown) {
@@ -129,28 +145,16 @@ export async function notifyParentOnAssessment(
   subjectName: string
 ): Promise<void> {
   try {
-    const q = query(
-      collection(db, 'pushTokens'),
-      where('role', '==', 'parent'),
-      where('studentIds', 'array-contains', studentId)
-    );
+    const parentTokens = await getParentPushTokens(studentId);
+    if (parentTokens.length === 0) return;
 
-    const snapshot = await getDocs(q);
-    if (snapshot.empty) return;
-
-    const messages: PushMessagePayload[] = [];
-    snapshot.forEach((docSnap) => {
-      const data = docSnap.data();
-      if (data.pushToken) {
-        messages.push({
-          to: data.pushToken,
-          sound: 'default',
-          title: '📊 Penilaian Akademik Baru',
-          body: `Nilai/catatan perkembangan ${subjectName} untuk ${studentName} telah diperbarui.`,
-          data: { studentId, type: 'assessment' },
-        });
-      }
-    });
+    const messages: PushMessagePayload[] = parentTokens.map((token) => ({
+      to: token,
+      sound: 'default',
+      title: '📊 Penilaian Akademik Baru',
+      body: `Nilai/catatan perkembangan ${subjectName} untuk ${studentName} telah diperbarui.`,
+      data: { studentId, type: 'assessment' },
+    }));
 
     await sendExpoPushNotifications(messages);
   } catch (error: unknown) {
