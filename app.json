@@ -24,7 +24,8 @@
       },
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false,
-      "package": "com.masululsteam.SchoolCom"
+      "package": "com.masululsteam.SchoolCom",
+      "googleServicesFile": "./google-services.json"
     },
     "web": {
       "output": "static",
@@ -39,6 +40,13 @@
           "imageWidth": 200,
           "resizeMode": "contain",
           "backgroundColor": "#ffffff"
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/images/icon.png",
+          "color": "#2563EB"
         }
       ]
     ],
