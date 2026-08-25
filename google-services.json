@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "179912226249",
+    "project_id": "schoolcom-app-8623c",
+    "storage_bucket": "schoolcom-app-8623c.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:179912226249:android:d56808cd7cec038046a418",
+        "android_client_info": {
+          "package_name": "com.masululsteam.SchoolCom"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAyD6cEoNYo72JeX_f9s0vKF0vEZ19B-zE"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
