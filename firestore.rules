@@ -1,0 +1,250 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ==========================================
+    // HELPER FUNCTIONS (PHASE 10-16)
+    // ==========================================
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function getUserData() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() && getUserData().role == 'admin';
+    }
+
+    function isTeacherOrAdmin() {
+      return isAuthenticated() && (
+        getUserData().role == 'teacher' || getUserData().role == 'admin'
+      );
+    }
+
+    function isParent() {
+      return isAuthenticated() && getUserData().role == 'parent';
+    }
+
+    // Helper untuk mengecek apakah studentId dokumen ada di dalam array studentIds milik Parent
+    function isParentOfStudent(studentId) {
+      return isParent() && 
+        getUserData().keys().hasAll(['studentIds']) &&
+        getUserData().studentIds.hasAny([studentId]);
+    }
+
+    // Helper khusus Attendance & Incident: Cek apakah className terdaftar pada array .classes milik Guru
+    function isTeacherForClass(className) {
+      let userData = getUserData();
+      return userData.role == 'teacher' &&
+        userData.classes != null &&
+        className != null &&
+        userData.classes.hasAny([className]);
+    }
+
+    // ==========================================
+    // HELPER FUNCTIONS PUSH TOKENS (SUB-PHASE 17.1)
+    // ==========================================
+    // FIX: Admin sekarang bypass langsung tanpa dipaksa lolos cek classes,
+    // karena isTeacherForClass() cuma valid untuk role 'teacher'.
+    function isTeacherOfParent(targetPushTokenData) {
+      return isAdmin() || (
+        isAuthenticated() &&
+        getUserData().role == 'teacher' &&
+        targetPushTokenData.role == 'parent' &&
+        targetPushTokenData.studentIds != null &&
+        isTeacherForStudentIds(targetPushTokenData.studentIds)
+      );
+    }
+
+    // Short-circuit & Out-of-bounds guard (Max 3 anak pertama per keluarga)
+    function isTeacherForStudentIds(studentIds) {
+      let listSize = studentIds.size();
+      return (listSize > 0 && isTeacherForStudent(studentIds[0]))
+          || (listSize > 1 && isTeacherForStudent(studentIds[1]))
+          || (listSize > 2 && isTeacherForStudent(studentIds[2]));
+    }
+
+    function isTeacherForStudent(studentId) {
+      let studentPath = /databases/$(database)/documents/students/$(studentId);
+      return exists(studentPath) && isTeacherForStudentDoc(get(studentPath));
+    }
+
+    function isTeacherForStudentDoc(studentDoc) {
+      return studentDoc.data.className != null 
+        && isTeacherForClass(studentDoc.data.className);
+    }
+
+    function isParentOfTeacherClass(targetPushTokenData) {
+      return isParent()
+        && targetPushTokenData.role == 'teacher'
+        && targetPushTokenData.assignedClasses != null
+        && isParentInClasses(targetPushTokenData.assignedClasses);
+    }
+
+    function isParentInClasses(assignedClasses) {
+      let parentPath = /databases/$(database)/documents/users/$(request.auth.uid);
+      return exists(parentPath) && isParentInClassesDoc(get(parentPath), assignedClasses);
+    }
+
+    function isParentInClassesDoc(parentDoc, assignedClasses) {
+      return parentDoc.data.studentIds != null 
+        && isAnyStudentInClasses(parentDoc.data.studentIds, assignedClasses);
+    }
+
+    function isAnyStudentInClasses(studentIds, assignedClasses) {
+      let listSize = studentIds.size();
+      return (listSize > 0 && isStudentInClasses(studentIds[0], assignedClasses))
+          || (listSize > 1 && isStudentInClasses(studentIds[1], assignedClasses))
+          || (listSize > 2 && isStudentInClasses(studentIds[2], assignedClasses));
+    }
+
+    function isStudentInClasses(studentId, assignedClasses) {
+      let studentPath = /databases/$(database)/documents/students/$(studentId);
+      return exists(studentPath) && isStudentInClassesDoc(get(studentPath), assignedClasses);
+    }
+
+    function isStudentInClassesDoc(studentDoc, assignedClasses) {
+      return studentDoc.data.className != null 
+        && assignedClasses.hasAny([studentDoc.data.className]);
+    }
+
+    // ==========================================
+    // 1. COLLECTION: users (HARDENED 18.1 & 18.3)
+    // ==========================================
+    match /users/{userId} {
+      allow read: if isAuthenticated();
+      
+      // FIX 18.3: Mencegah penyuntikan atribut classes saat self-signup Parent
+      allow create: if isAdmin() || (
+        isAuthenticated() && 
+        request.auth.uid == userId && 
+        request.resource.data.role == 'parent' &&
+        (!request.resource.data.keys().hasAny(['classes']))
+      );
+      
+      // FIX 18.1 (P0-2): Mencegah self-privilege escalation (role, classes, studentIds) saat update
+      allow update: if isAdmin() || (
+        isAuthenticated() && 
+        request.auth.uid == userId && 
+        (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['role', 'classes', 'studentIds']))
+      );
+      
+      allow delete: if isAdmin();
+    }
+
+    // ==========================================
+    // 2. COLLECTION: students
+    // ==========================================
+    match /students/{studentId} {
+      allow read: if isTeacherOrAdmin() || isParentOfStudent(studentId);
+      allow write: if isAdmin();
+    }
+
+    // ==========================================
+    // 3. COLLECTION: incidents (HARDENED 15.1)
+    // ==========================================
+    match /incidents/{incidentId} {
+      allow read: if isTeacherOrAdmin() || isParentOfStudent(resource.data.studentId);
+
+      allow create: if isAdmin() || (
+        isAuthenticated() &&
+        request.resource.data.className != null &&
+        isTeacherForClass(request.resource.data.className)
+      );
+
+      allow update: if isAdmin() || (
+        isAuthenticated() &&
+        isTeacherForClass(resource.data.className) &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'followUpLogs', 'updatedAt'])
+      );
+
+      allow delete: if isAdmin();
+    }
+
+    // ==========================================
+    // 4. COLLECTION: attendance (HARDENED 14.3)
+    // ==========================================
+    match /attendance/{attendanceId} {
+      allow read: if isTeacherOrAdmin() || isParentOfStudent(resource.data.studentId);
+
+      allow create: if isAdmin() || (
+        isAuthenticated() &&
+        isTeacherForClass(request.resource.data.className)
+      );
+
+      allow update: if isAdmin() || (
+        isAuthenticated() &&
+        isTeacherForClass(resource.data.className) &&
+        request.resource.data.studentId == resource.data.studentId &&
+        request.resource.data.studentName == resource.data.studentName &&
+        request.resource.data.className == resource.data.className &&
+        request.resource.data.date == resource.data.date
+      );
+
+      allow delete: if isAdmin();
+    }
+
+    // ==========================================
+    // 5. COLLECTION: assessmentConfigs
+    // ==========================================
+    match /assessmentConfigs/{configId} {
+      allow read: if isAuthenticated();
+      allow create, update, delete: if isAdmin();
+    }
+
+    // ==========================================
+    // 6. COLLECTION: assessments (HARDENED 18.1 P0-1)
+    // ==========================================
+    match /assessments/{assessmentId} {
+      allow read: if isTeacherOrAdmin() || isParentOfStudent(resource.data.studentId);
+      
+      // FIX 18.1: Batasi CREATE hanya untuk Admin atau Guru kelas binaan yang sesuai
+      allow create: if isAdmin() || (
+        isAuthenticated() &&
+        request.resource.data.className != null &&
+        isTeacherForClass(request.resource.data.className)
+      );
+
+      // FIX 18.1: Batasi UPDATE hanya untuk Admin atau Guru kelas asal & kunci field identitas/ownership
+      allow update: if isAdmin() || (
+        isAuthenticated() &&
+        isTeacherForClass(resource.data.className) &&
+        request.resource.data.className == resource.data.className &&
+        request.resource.data.studentId == resource.data.studentId &&
+        request.resource.data.subjectId == resource.data.subjectId
+      );
+
+      allow delete: if isAdmin();
+    }
+
+    // ==========================================
+    // 7. COLLECTION: pushTokens (SUB-PHASE 17.1)
+    // ==========================================
+    match /pushTokens/{targetUid} {
+      // READ: Diizinkan untuk Pemilik Token, Admin, atau Guru/Orang Tua yang terikat relasi kelas
+      allow read: if isAuthenticated() && (
+        request.auth.uid == targetUid ||
+        isAdmin() ||
+        isTeacherOfParent(resource.data) ||
+        isParentOfTeacherClass(resource.data)
+      );
+
+      // WRITE: Hanya pemilik akun yang dapat mendaftarkan/memperbarui token miliknya
+      allow write: if isAuthenticated() 
+                   && request.auth.uid == targetUid
+                   && request.resource.data.keys().hasAll(['pushToken', 'role', 'updatedAt'])
+                   && request.resource.data.pushToken is string
+                   && request.resource.data.role in ['admin', 'teacher', 'parent'];
+    }
+
+    // ==========================================
+    // 8. CATCH-ALL (DEFAULT DENY)
+    // ==========================================
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

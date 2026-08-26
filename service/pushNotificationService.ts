@@ -1,4 +1,4 @@
-import { collection, getDocs, query, where } from 'firebase/firestore';
+import { collection, doc, getDoc, getDocs, query, where } from 'firebase/firestore';
 import { db } from '../config/firebase';
 
 const EXPO_PUSH_URL = 'https://exp.host/--/api/v2/push/send';
@@ -37,7 +37,6 @@ async function sendExpoPushNotifications(messages: PushMessagePayload[]): Promis
         body: JSON.stringify(chunk),
       });
 
-      // Selalu baca body-nya walau response.ok, biar ketauan kalau ada tiket per-token yang gagal.
       const result = await response.json().catch(() => null);
 
       if (!response.ok) {
@@ -72,54 +71,56 @@ async function sendExpoPushNotifications(messages: PushMessagePayload[]): Promis
 }
 
 /**
- * Helper internal untuk mendapatkan seluruh token milik Parent yang terhubung ke studentId tertentu
- * (Double Coverage: Mencari dari koleksi 'pushTokens' dan fallback ke 'users').
+ * Helper internal untuk mendapatkan seluruh token milik Parent yang terhubung ke studentId tertentu.
+ *
+ * PENTING: Fungsi ini SENGAJA tidak melakukan query() langsung ke koleksi 'pushTokens'
+ * dengan filter role/studentIds. Rules Firestore untuk 'pushTokens' butuh get() tambahan
+ * ke koleksi 'students' (lewat isTeacherOfParent) yang nilainya beda-beda per dokumen —
+ * Firestore tidak bisa membuktikan rule itu valid untuk SEMUA kemungkinan hasil query
+ * (list request), jadi query kayak gitu selalu ditolak permission-denied walau
+ * per-dokumen sebenarnya lolos.
+ *
+ * Solusinya: cari dulu UID parent lewat koleksi 'users' (bebas dibaca semua authenticated
+ * user), lalu ambil token per UID pakai getDoc() satu-satu — getDoc dievaluasi langsung
+ * ke resource.data dokumen itu doang, jadi rules-nya tetap berlaku normal.
  */
 async function getParentPushTokens(studentId: string): Promise<string[]> {
   const tokens: Set<string> = new Set();
 
   try {
-    // 1. Cari di koleksi 'pushTokens'
-    const qPushTokens = query(
-      collection(db, 'pushTokens'),
-      where('role', '==', 'parent'),
-      where('studentIds', 'array-contains', studentId)
-    );
-    const snapPush = await getDocs(qPushTokens);
-    console.log(`[PushNotificationService] Query pushTokens studentId=${studentId} -> ${snapPush.size} dokumen.`);
-    snapPush.forEach((docSnap) => {
-      const data = docSnap.data();
-      if (typeof data.pushToken === 'string' && data.pushToken.length > 0) {
-        tokens.add(data.pushToken);
-      }
-    });
-  } catch (err: any) {
-    console.error(
-      '[PushNotificationService] Error querying pushTokens. code:', err?.code, 'message:', err?.message, err
-    );
-  }
-
-  try {
-    // 2. Double-check di koleksi 'users'
     const qUsers = query(
       collection(db, 'users'),
       where('role', '==', 'parent'),
       where('studentIds', 'array-contains', studentId)
     );
     const snapUsers = await getDocs(qUsers);
-    console.log(`[PushNotificationService] Query users(role=parent) studentId=${studentId} -> ${snapUsers.size} dokumen.`);
-    snapUsers.forEach((docSnap) => {
-      const data = docSnap.data();
-      if (typeof data.pushToken === 'string' && data.pushToken.length > 0) {
-        tokens.add(data.pushToken);
-      }
-      if (typeof data.expoPushToken === 'string' && data.expoPushToken.length > 0) {
-        tokens.add(data.expoPushToken);
-      }
-    });
+    const parentUids = snapUsers.docs.map((d) => d.id);
+    console.log(`[PushNotificationService] Ditemukan ${parentUids.length} parent untuk studentId=${studentId}.`);
+
+    if (parentUids.length === 0) {
+      return [];
+    }
+
+    await Promise.all(
+      parentUids.map(async (uid) => {
+        try {
+          const tokenSnap = await getDoc(doc(db, 'pushTokens', uid));
+          if (tokenSnap.exists()) {
+            const data = tokenSnap.data();
+            if (typeof data.pushToken === 'string' && data.pushToken.length > 0) {
+              tokens.add(data.pushToken);
+            }
+          }
+        } catch (innerErr: any) {
+          console.warn(
+            `[PushNotificationService] Gagal baca pushTokens/${uid}. code:`, innerErr?.code, 'message:', innerErr?.message
+          );
+        }
+      })
+    );
   } catch (err: any) {
     console.error(
-      '[PushNotificationService] Error querying users fallback. code:', err?.code, 'message:', err?.message, err
+      '[PushNotificationService] Error mencari parent via users. code:', err?.code, 'message:', err?.message, err
     );
   }
 
@@ -128,6 +129,10 @@ async function getParentPushTokens(studentId: string): Promise<string[]> {
 
 /**
  * Helper internal untuk mendapatkan token pengguna berdasarkan Role atau Broadcast All.
+ * Catatan: hanya aman dipanggil dari akun ADMIN — isAdmin() di rules tidak bergantung
+ * ke resource.data, jadi query list ke 'pushTokens' ini valid untuk admin.
+ * JANGAN panggil ini dari akun teacher/parent, akan kena permission-denied yang sama
+ * seperti kasus getParentPushTokens di atas.
  */
 async function getBroadcastPushTokens(targetRole: BroadcastTargetRole): Promise<string[]> {
   const tokens: Set<string> = new Set();
@@ -147,27 +152,6 @@ async function getBroadcastPushTokens(targetRole: BroadcastTargetRole): Promise<
   } catch (err: any) {
     console.error(
       '[PushNotificationService] Error fetching broadcast pushTokens. code:', err?.code, 'message:', err?.message, err
-    );
-  }
-
-  try {
-    const usersRef = collection(db, 'users');
-    const qUsers = targetRole === 'all' ? query(usersRef) : query(usersRef, where('role', '==', targetRole));
-
-    const snapUsers = await getDocs(qUsers);
-    console.log(`[PushNotificationService] Query broadcast users role=${targetRole} -> ${snapUsers.size} dokumen.`);
-    snapUsers.forEach((docSnap) => {
-      const data = docSnap.data();
-      if (typeof data.pushToken === 'string' && data.pushToken.length > 0) {
-        tokens.add(data.pushToken);
-      }
-      if (typeof data.expoPushToken === 'string' && data.expoPushToken.length > 0) {
-        tokens.add(data.expoPushToken);
-      }
-    });
-  } catch (err: any) {
-    console.error(
-      '[PushNotificationService] Error fetching broadcast users fallback. code:', err?.code, 'message:', err?.message, err
     );
   }
 
@@ -266,6 +250,7 @@ export async function notifyParentOnAssessment(
 
 /**
  * EVT-05 (BROADCAST): Mengirim Pengumuman Massal ke Seluruh Pengguna / Parent / Teacher.
+ * WAJIB dipanggil dari akun ADMIN saja (lihat catatan di getBroadcastPushTokens).
  */
 export async function sendBroadcastNotification(
   title: string,
