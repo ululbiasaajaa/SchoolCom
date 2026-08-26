@@ -16,16 +16,17 @@ export type BroadcastTargetRole = 'all' | 'parent' | 'teacher';
 
 /**
  * Helper internal untuk mengirim satu atau beberapa payload notifikasi ke Expo Push API.
- * Dilengkapi dengan chunking otomatis (maksimal 100 messages per HTTP request).
+ * Dilengkapi dengan chunking otomatis (maksimal 100 messages per HTTP request)
+ * DAN pengecekan tiket per-message (Expo tetap balikin HTTP 200 walau ada token individual yang gagal).
  */
 async function sendExpoPushNotifications(messages: PushMessagePayload[]): Promise<void> {
   if (messages.length === 0) return;
 
-  try {
-    // Chunking array messages agar tidak melebihi batas 100 item per request Expo Push API
-    for (let i = 0; i < messages.length; i += CHUNK_SIZE) {
-      const chunk = messages.slice(i, i + CHUNK_SIZE);
+  for (let i = 0; i < messages.length; i += CHUNK_SIZE) {
+    const chunk = messages.slice(i, i + CHUNK_SIZE);
+    const chunkNumber = i / CHUNK_SIZE + 1;
 
+    try {
       const response = await fetch(EXPO_PUSH_URL, {
         method: 'POST',
         headers: {
@@ -36,18 +37,37 @@ async function sendExpoPushNotifications(messages: PushMessagePayload[]): Promis
         body: JSON.stringify(chunk),
       });
 
+      // Selalu baca body-nya walau response.ok, biar ketauan kalau ada tiket per-token yang gagal.
+      const result = await response.json().catch(() => null);
+
       if (!response.ok) {
-        console.warn(
-          `[PushNotificationService] Response error (${response.status}) pada chunk ${i / CHUNK_SIZE + 1}`
+        console.error(
+          `[PushNotificationService] Response error (${response.status}) pada chunk ${chunkNumber}:`,
+          JSON.stringify(result)
         );
-      } else {
-        console.log(
-          `[PushNotificationService] Berhasil mengirim ${chunk.length} notifikasi push (Chunk ${i / CHUNK_SIZE + 1}).`
-        );
+        continue;
       }
+
+      const tickets = result?.data;
+      if (Array.isArray(tickets)) {
+        tickets.forEach((ticket: any, idx: number) => {
+          if (ticket.status === 'error') {
+            console.error(
+              `[PushNotificationService] Gagal kirim ke token #${idx} chunk ${chunkNumber} (${chunk[idx]?.to}):`,
+              ticket.message,
+              ticket.details
+            );
+          }
+        });
+      }
+
+      console.log(
+        `[PushNotificationService] Berhasil mengirim ${chunk.length} notifikasi push (Chunk ${chunkNumber}). Response:`,
+        JSON.stringify(result)
+      );
+    } catch (error: unknown) {
+      console.error(`[PushNotificationService] Gagal mengirim HTTP request ke Expo Push API (Chunk ${chunkNumber}):`, error);
     }
-  } catch (error: unknown) {
-    console.error('[PushNotificationService] Gagal mengirim HTTP request ke Expo Push API:', error);
   }
 }
 
@@ -66,13 +86,20 @@ async function getParentPushTokens(studentId: string): Promise<string[]> {
       where('studentIds', 'array-contains', studentId)
     );
     const snapPush = await getDocs(qPushTokens);
+    console.log(`[PushNotificationService] Query pushTokens studentId=${studentId} -> ${snapPush.size} dokumen.`);
     snapPush.forEach((docSnap) => {
       const data = docSnap.data();
       if (typeof data.pushToken === 'string' && data.pushToken.length > 0) {
         tokens.add(data.pushToken);
       }
     });
+  } catch (err: any) {
+    console.error(
+      '[PushNotificationService] Error querying pushTokens. code:', err?.code, 'message:', err?.message, err
+    );
+  }
 
+  try {
     // 2. Double-check di koleksi 'users'
     const qUsers = query(
       collection(db, 'users'),
@@ -80,6 +107,7 @@ async function getParentPushTokens(studentId: string): Promise<string[]> {
       where('studentIds', 'array-contains', studentId)
     );
     const snapUsers = await getDocs(qUsers);
+    console.log(`[PushNotificationService] Query users(role=parent) studentId=${studentId} -> ${snapUsers.size} dokumen.`);
     snapUsers.forEach((docSnap) => {
       const data = docSnap.data();
       if (typeof data.pushToken === 'string' && data.pushToken.length > 0) {
@@ -89,8 +117,10 @@ async function getParentPushTokens(studentId: string): Promise<string[]> {
         tokens.add(data.expoPushToken);
       }
     });
-  } catch (err: unknown) {
-    console.error('[PushNotificationService] Error querying parent tokens:', err);
+  } catch (err: any) {
+    console.error(
+      '[PushNotificationService] Error querying users fallback. code:', err?.code, 'message:', err?.message, err
+    );
   }
 
   return Array.from(tokens);
@@ -103,29 +133,29 @@ async function getBroadcastPushTokens(targetRole: BroadcastTargetRole): Promise<
   const tokens: Set<string> = new Set();
 
   try {
-    // Fetch dari koleksi 'pushTokens'
     const pushRef = collection(db, 'pushTokens');
-    const qPush =
-      targetRole === 'all'
-        ? query(pushRef)
-        : query(pushRef, where('role', '==', targetRole));
+    const qPush = targetRole === 'all' ? query(pushRef) : query(pushRef, where('role', '==', targetRole));
 
     const snapPush = await getDocs(qPush);
+    console.log(`[PushNotificationService] Query broadcast pushTokens role=${targetRole} -> ${snapPush.size} dokumen.`);
     snapPush.forEach((docSnap) => {
       const data = docSnap.data();
       if (typeof data.pushToken === 'string' && data.pushToken.length > 0) {
         tokens.add(data.pushToken);
       }
     });
+  } catch (err: any) {
+    console.error(
+      '[PushNotificationService] Error fetching broadcast pushTokens. code:', err?.code, 'message:', err?.message, err
+    );
+  }
 
-    // Double check ke koleksi 'users'
+  try {
     const usersRef = collection(db, 'users');
-    const qUsers =
-      targetRole === 'all'
-        ? query(usersRef)
-        : query(usersRef, where('role', '==', targetRole));
+    const qUsers = targetRole === 'all' ? query(usersRef) : query(usersRef, where('role', '==', targetRole));
 
     const snapUsers = await getDocs(qUsers);
+    console.log(`[PushNotificationService] Query broadcast users role=${targetRole} -> ${snapUsers.size} dokumen.`);
     snapUsers.forEach((docSnap) => {
       const data = docSnap.data();
       if (typeof data.pushToken === 'string' && data.pushToken.length > 0) {
@@ -135,8 +165,10 @@ async function getBroadcastPushTokens(targetRole: BroadcastTargetRole): Promise<
         tokens.add(data.expoPushToken);
       }
     });
-  } catch (err: unknown) {
-    console.error('[PushNotificationService] Error fetching broadcast tokens:', err);
+  } catch (err: any) {
+    console.error(
+      '[PushNotificationService] Error fetching broadcast users fallback. code:', err?.code, 'message:', err?.message, err
+    );
   }
 
   return Array.from(tokens);
@@ -155,9 +187,7 @@ export async function notifyParentOnIncident(
     const parentTokens = await getParentPushTokens(studentId);
 
     if (parentTokens.length === 0) {
-      console.log(
-        `[PushNotificationService] Tidak ada Push Token terdaftar untuk Parent dari studentId: ${studentId}`
-      );
+      console.warn(`[PushNotificationService] Tidak ada Push Token terdaftar/terbaca untuk Parent dari studentId: ${studentId}`);
       return;
     }
 
@@ -186,7 +216,10 @@ export async function notifyParentOnAttendance(
 ): Promise<void> {
   try {
     const parentTokens = await getParentPushTokens(studentId);
-    if (parentTokens.length === 0) return;
+    if (parentTokens.length === 0) {
+      console.warn(`[PushNotificationService] Tidak ada Push Token terdaftar/terbaca untuk Parent dari studentId: ${studentId}`);
+      return;
+    }
 
     const messages: PushMessagePayload[] = parentTokens.map((token) => ({
       to: token,
@@ -212,7 +245,10 @@ export async function notifyParentOnAssessment(
 ): Promise<void> {
   try {
     const parentTokens = await getParentPushTokens(studentId);
-    if (parentTokens.length === 0) return;
+    if (parentTokens.length === 0) {
+      console.warn(`[PushNotificationService] Tidak ada Push Token terdaftar/terbaca untuk Parent dari studentId: ${studentId}`);
+      return;
+    }
 
     const messages: PushMessagePayload[] = parentTokens.map((token) => ({
       to: token,
@@ -240,7 +276,7 @@ export async function sendBroadcastNotification(
     const tokens = await getBroadcastPushTokens(targetRole);
 
     if (tokens.length === 0) {
-      console.log(`[PushNotificationService] Tidak ada Push Token ditemukan untuk target broadcast: ${targetRole}`);
+      console.warn(`[PushNotificationService] Tidak ada Push Token ditemukan untuk target broadcast: ${targetRole}`);
       return;
     }
 
