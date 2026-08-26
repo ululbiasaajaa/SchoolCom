@@ -42,3 +42,5 @@ app-example
 # generated native folders
 /ios
 /android
+*firebase-adminsdk*.json
+schoolcom-app-8623c-firebase-adminsdk-fbsvc-46d4cf17eb.json
