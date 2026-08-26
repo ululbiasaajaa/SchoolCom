@@ -232,12 +232,18 @@ service cloud.firestore {
         isParentOfTeacherClass(resource.data)
       );
 
-      // WRITE: Hanya pemilik akun yang dapat mendaftarkan/memperbarui token miliknya
-      allow write: if isAuthenticated() 
+      // CREATE/UPDATE: Hanya pemilik akun yang dapat mendaftarkan/memperbarui token miliknya,
+      // dan payload wajib punya field lengkap sesuai skema PushTokenDocument.
+      allow create, update: if isAuthenticated() 
                    && request.auth.uid == targetUid
                    && request.resource.data.keys().hasAll(['pushToken', 'role', 'updatedAt'])
                    && request.resource.data.pushToken is string
                    && request.resource.data.role in ['admin', 'teacher', 'parent'];
+
+      // DELETE: dipisah dari write biasa karena request.resource bernilai null saat delete,
+      // jadi validasi keys()/field di atas gak bisa dipakai buat operasi ini.
+      // Cukup pastikan yang menghapus adalah pemilik token itu sendiri (dipanggil saat logout).
+      allow delete: if isAuthenticated() && request.auth.uid == targetUid;
     }
 
     // ==========================================
