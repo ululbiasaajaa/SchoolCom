@@ -26,7 +26,9 @@ const StudentListItem = React.memo(
   }) => {
     const rawGender = student.gender;
     const genderText = rawGender ? (rawGender === 'M' ? 'Laki-laki' : 'Perempuan') : null;
-    const classText = student.className ? `Kelas ${student.className}` : null;
+    // FIX: student.className sudah mengandung kata "Kelas" (misal "Kelas TK-A"),
+    // jadi tidak perlu ditambah prefix lagi di sini — sebelumnya jadi "Kelas Kelas TK-A".
+    const classText = student.className || null;
     const subTextParts = [classText, genderText, `ID: ${student.id}`].filter(Boolean);
 
     return (

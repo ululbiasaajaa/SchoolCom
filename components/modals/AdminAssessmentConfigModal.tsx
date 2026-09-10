@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -46,6 +46,13 @@ export default function AdminAssessmentConfigModal({
   const [predicates, setPredicates] = useState<AssessmentPredicateConfig[]>([]);
   const [subjects, setSubjects] = useState<AssessmentSubjectConfig[]>([]);
 
+  // FIX BUG: Baseline dari data yang baru di-fetch, dipakai untuk deteksi ada-tidaknya
+  // perubahan draft yang belum disimpan (isDirty). Sebelumnya, ganti periode Tahun
+  // Ajaran/Semester langsung menimpa draft tanpa peringatan apapun, jadi edit yang belum
+  // di-"Simpan Konfigurasi" bisa hilang diam-diam.
+  const [initialPredicates, setInitialPredicates] = useState<AssessmentPredicateConfig[]>([]);
+  const [initialSubjects, setInitialSubjects] = useState<AssessmentSubjectConfig[]>([]);
+
   // State Input Tambah Subject Baru
   const [newSubjectName, setNewSubjectName] = useState<string>('');
   const [newSubjectCategory, setNewSubjectCategory] = useState<string>('Akademik');
@@ -68,10 +75,14 @@ export default function AdminAssessmentConfigModal({
         if (fetchedConfig) {
           setPredicates(fetchedConfig.predicates || []);
           setSubjects(fetchedConfig.subjects || []);
+          setInitialPredicates(fetchedConfig.predicates || []);
+          setInitialSubjects(fetchedConfig.subjects || []);
         } else {
           // Konfigurasi belum ada untuk periode ini -> set default kosong
           setPredicates([]);
           setSubjects([]);
+          setInitialPredicates([]);
+          setInitialSubjects([]);
         }
         setIsLoading(false);
       }
@@ -79,6 +90,63 @@ export default function AdminAssessmentConfigModal({
 
     return () => unsub();
   }, [visible, selectedAcademicYear, selectedTerm]);
+
+  // Helper Murni: Bandingkan draft saat ini vs baseline (deep-compare via JSON)
+  const isDirty = useMemo(() => {
+    return (
+      JSON.stringify(predicates) !== JSON.stringify(initialPredicates) ||
+      JSON.stringify(subjects) !== JSON.stringify(initialSubjects)
+    );
+  }, [predicates, subjects, initialPredicates, initialSubjects]);
+
+  // Handler Ganti Periode dengan Guard Warning (FIX: sebelumnya tidak ada guard sama sekali)
+  const handleChangeAcademicYear = (year: string) => {
+    if (year === selectedAcademicYear) return;
+    if (isDirty) {
+      Alert.alert(
+        'Ada Perubahan Belum Disimpan',
+        'Konfigurasi yang sedang Anda edit belum disimpan. Jika berpindah periode sekarang, perubahan tersebut akan hilang.',
+        [
+          { text: 'Batal', style: 'cancel' },
+          { text: 'Lanjutkan', style: 'destructive', onPress: () => setSelectedAcademicYear(year) },
+        ]
+      );
+    } else {
+      setSelectedAcademicYear(year);
+    }
+  };
+
+  const handleChangeTerm = (term: string) => {
+    if (term === selectedTerm) return;
+    if (isDirty) {
+      Alert.alert(
+        'Ada Perubahan Belum Disimpan',
+        'Konfigurasi yang sedang Anda edit belum disimpan. Jika berpindah periode sekarang, perubahan tersebut akan hilang.',
+        [
+          { text: 'Batal', style: 'cancel' },
+          { text: 'Lanjutkan', style: 'destructive', onPress: () => setSelectedTerm(term) },
+        ]
+      );
+    } else {
+      setSelectedTerm(term);
+    }
+  };
+
+  // Handler Tutup Modal dengan Guard Warning yang sama
+  const handleRequestClose = () => {
+    if (isDirty) {
+      Alert.alert(
+        'Ada Perubahan Belum Disimpan',
+        'Konfigurasi yang sedang Anda edit belum disimpan. Yakin ingin menutup tanpa menyimpan?',
+        [
+          { text: 'Batal', style: 'cancel' },
+          { text: 'Tutup Tanpa Simpan', style: 'destructive', onPress: onClose },
+        ]
+      );
+    } else {
+      onClose();
+    }
+  };
 
   // Handler Tambah Mata Pelajaran Baru
   const handleAddSubject = () => {
@@ -200,7 +268,7 @@ export default function AdminAssessmentConfigModal({
   };
 
   return (
-    <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
+    <Modal visible={visible} animationType="slide" transparent onRequestClose={handleRequestClose}>
       <View style={styles.modalOverlay}>
         <View style={styles.modalContainer}>
           {/* Header Modal */}
@@ -209,7 +277,7 @@ export default function AdminAssessmentConfigModal({
               <Text style={styles.modalTitle}>⚙️ Pengaturan Penilaian (Admin)</Text>
               <Text style={styles.modalSubTitle}>Kelola Matpel, Field, & Predikat Rapor</Text>
             </View>
-            <TouchableOpacity style={styles.closeBtn} onPress={onClose}>
+            <TouchableOpacity style={styles.closeBtn} onPress={handleRequestClose}>
               <Text style={styles.closeBtnText}>✕</Text>
             </TouchableOpacity>
           </View>
@@ -222,7 +290,7 @@ export default function AdminAssessmentConfigModal({
                 <TouchableOpacity
                   key={year}
                   style={[styles.chip, selectedAcademicYear === year && styles.chipActive]}
-                  onPress={() => setSelectedAcademicYear(year)}
+                  onPress={() => handleChangeAcademicYear(year)}
                 >
                   <Text style={[styles.chipText, selectedAcademicYear === year && styles.chipTextActive]}>
                     📅 {year}
@@ -233,7 +301,7 @@ export default function AdminAssessmentConfigModal({
                 <TouchableOpacity
                   key={term}
                   style={[styles.chip, selectedTerm === term && styles.chipActiveTerm]}
-                  onPress={() => setSelectedTerm(term)}
+                  onPress={() => handleChangeTerm(term)}
                 >
                   <Text style={[styles.chipText, selectedTerm === term && styles.chipTextActive]}>
                     📌 {term}

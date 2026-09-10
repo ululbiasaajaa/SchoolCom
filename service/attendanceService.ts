@@ -82,6 +82,13 @@ export const subscribeToAttendance = (
 };
 
 // 2B. Realtime subscription absensi terisolasi per KELAS & TANGGAL (untuk Teacher Bulk Workflow)
+//
+// CATATAN PENTING (bukan bug kode, tapi jebakan deploy yang sering kelewat):
+// Query ini pakai where('date', ...) DAN where('className', ...) sekaligus (compound query
+// dua field berbeda). Firestore WAJIB punya composite index untuk kombinasi field ini,
+// kalau belum dibuat manual di Firebase Console (Firestore > Indexes), function ini akan
+// throw runtime error "The query requires an index" saat pertama kali dipanggil.
+// Firestore biasanya kasih link otomatis di error message untuk generate index-nya.
 export const subscribeToAttendanceByClass = (
   date: string,
   className: string,

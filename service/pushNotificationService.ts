@@ -251,30 +251,36 @@ export async function notifyParentOnAssessment(
 /**
  * EVT-05 (BROADCAST): Mengirim Pengumuman Massal ke Seluruh Pengguna / Parent / Teacher.
  * WAJIB dipanggil dari akun ADMIN saja (lihat catatan di getBroadcastPushTokens).
+ *
+ * FIX BUG: Versi sebelumnya SELALU resolve tanpa error apapun — baik saat sukses,
+ * saat token kosong (0 penerima), maupun saat ada exception internal (di-catch lalu
+ * cuma di-log). Akibatnya UI pemanggil (BroadcastModal) tidak pernah tahu apakah
+ * broadcast beneran nyampe ke siapa-siapa, dan selalu menampilkan pesan sukses ke admin
+ * meskipun kenyataannya 0 device yang menerima. Sekarang fungsi ini:
+ * - Melempar (throw) error asli kalau terjadi exception, alih-alih menelannya diam-diam.
+ * - Mengembalikan jumlah penerima aktual (`recipientCount`) supaya pemanggil bisa
+ *   membedakan "terkirim ke N orang" vs "0 penerima ditemukan".
  */
 export async function sendBroadcastNotification(
   title: string,
   body: string,
   targetRole: BroadcastTargetRole = 'all'
-): Promise<void> {
-  try {
-    const tokens = await getBroadcastPushTokens(targetRole);
+): Promise<{ recipientCount: number }> {
+  const tokens = await getBroadcastPushTokens(targetRole);
 
-    if (tokens.length === 0) {
-      console.warn(`[PushNotificationService] Tidak ada Push Token ditemukan untuk target broadcast: ${targetRole}`);
-      return;
-    }
-
-    const messages: PushMessagePayload[] = tokens.map((token) => ({
-      to: token,
-      sound: 'default',
-      title: `📢 ${title}`,
-      body,
-      data: { type: 'broadcast', targetRole },
-    }));
-
-    await sendExpoPushNotifications(messages);
-  } catch (error: unknown) {
-    console.error('[PushNotificationService] Error pada sendBroadcastNotification:', error);
+  if (tokens.length === 0) {
+    console.warn(`[PushNotificationService] Tidak ada Push Token ditemukan untuk target broadcast: ${targetRole}`);
+    return { recipientCount: 0 };
   }
+
+  const messages: PushMessagePayload[] = tokens.map((token) => ({
+    to: token,
+    sound: 'default',
+    title: `📢 ${title}`,
+    body,
+    data: { type: 'broadcast', targetRole },
+  }));
+
+  await sendExpoPushNotifications(messages);
+  return { recipientCount: tokens.length };
 }

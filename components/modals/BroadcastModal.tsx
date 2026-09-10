@@ -1,13 +1,13 @@
 import React, { useState } from 'react';
 import {
-    ActivityIndicator,
-    Alert,
-    Modal,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
+  ActivityIndicator,
+  Alert,
+  Modal,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from 'react-native';
 import { sendBroadcastNotification } from '../../service/pushNotificationService';
 import { BroadcastTargetRole } from '../../types/schoolcom';
@@ -32,14 +32,23 @@ export default function BroadcastModal({ visible, onClose, adminName }: Broadcas
 
     setIsSending(true);
     try {
-      await sendBroadcastNotification(title.trim(), message.trim(), targetRole);
-      
-      Alert.alert(
-        'Pengumuman Terkirim!',
-        `Pengumuman "${title}" berhasil disiarkan ke target: ${
-          targetRole === 'all' ? 'Semua Pengguna' : targetRole === 'parent' ? 'Orang Tua' : 'Guru'
-        }.`
-      );
+      // FIX: sebelumnya fungsi ini gak pernah kasih tahu jumlah penerima asli,
+      // jadi alert "Terkirim!" selalu muncul walau nyatanya 0 device yang nerima.
+      const { recipientCount } = await sendBroadcastNotification(title.trim(), message.trim(), targetRole);
+
+      if (recipientCount === 0) {
+        Alert.alert(
+          'Tidak Ada Penerima',
+          'Pengumuman tidak terkirim ke siapa pun karena belum ada perangkat terdaftar untuk target ini.'
+        );
+      } else {
+        Alert.alert(
+          'Pengumuman Terkirim!',
+          `Pengumuman "${title}" berhasil disiarkan ke ${recipientCount} perangkat pada target: ${
+            targetRole === 'all' ? 'Semua Pengguna' : targetRole === 'parent' ? 'Orang Tua' : 'Guru'
+          }.`
+        );
+      }
 
       // Reset form & tutup modal
       setTitle('');

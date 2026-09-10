@@ -25,13 +25,35 @@ export interface OverallProgressMetrics {
 }
 
 /**
-  Helper untuk mengonversi academicYear + term menjadi nilai skalar numerik.
+ * Helper untuk mengonversi academicYear + term menjadi nilai skalar numerik.
  * Digunakan untuk pengurutan kronologis secara presisi.
+ *
+ * FIX BUG POTENSIAL: Versi sebelumnya menentukan nomor semester dengan
+ * `term.includes('2')` — ini kebetulan benar SELAMA label term persis "Semester 1"/
+ * "Semester 2" (sesuai konvensi yang dipakai di seluruh app saat ini). Tapi begitu
+ * label term berubah (misal ke "Ganjil"/"Genap", atau nomor semester di atas 9),
+ * logic ini bakal salah diam-diam tanpa error apapun — istilah "Ganjil"/"Genap" gak
+ * mengandung karakter '2' sama sekali, jadi termNum selalu jatuh ke 1.
+ *
+ * Sekarang: ekstrak angka pertama dari string term via regex. Kalau tidak ketemu
+ * angka sama sekali (misal label non-numerik seperti "Ganjil"/"Genap"), fallback ke
+ * urutan alfabetis huruf pertama sebagai kompromi, bukan diam-diam selalu jadi 1.
  */
 const getPeriodValue = (academicYear: string, term: string): number => {
   const startYear = parseInt(academicYear.split('/')[0], 10) || 0;
-  const termNum = term.includes('2') ? 2 : 1;
-  return startYear * 10 + termNum;
+
+  const numericMatch = term.match(/\d+/);
+  let termNum: number;
+
+  if (numericMatch) {
+    termNum = parseInt(numericMatch[0], 10);
+  } else {
+    // Fallback untuk label non-numerik (misal "Ganjil"/"Genap") — pakai kode karakter
+    // huruf pertama supaya minimal tetap terurut konsisten, bukan selalu 1.
+    termNum = term.trim().charCodeAt(0) || 1;
+  }
+
+  return startYear * 100 + termNum;
 };
 
 /**

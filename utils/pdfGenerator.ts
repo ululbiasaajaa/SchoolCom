@@ -15,6 +15,24 @@ import { calculateAttendanceSummary } from './attendanceHelper';
 export const DEFAULT_SCHOOL_NAME = 'SchoolCom Learning Center';
 
 /**
+ * FIX BUG: Sebelumnya semua field dari user (nama siswa, deskripsi insiden, narrative,
+ * catatan follow-up, dll) di-interpolate LANGSUNG ke string HTML tanpa di-escape.
+ * Kalau guru/wali nulis karakter seperti "<", ">", atau "&" di field bebas teks
+ * (misal deskripsi insiden: "Nilai < 60 & perlu remedial"), tag HTML bisa ke-break
+ * dan bikin layout PDF berantakan tanpa error yang jelas. Helper ini dipakai untuk
+ * semua field teks bebas sebelum masuk ke template HTML.
+ */
+const escapeHtml = (value: unknown): string => {
+  if (value === null || value === undefined) return '';
+  return String(value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+};
+
+/**
  * Merender string HTML berformat A4 printable rapor siswa.
  */
 export const generateStudentReportHTML = (
@@ -57,7 +75,7 @@ export const generateStudentReportHTML = (
       if (hasAnyPredicate) {
         if (fields.enablePredicate) {
           const val = record?.predicate;
-          predicateCell = `<td style="text-align: center; font-weight: 600;">${val || '-'}</td>`;
+          predicateCell = `<td style="text-align: center; font-weight: 600;">${val ? escapeHtml(val) : '-'}</td>`;
         } else {
           predicateCell = `<td style="text-align: center; color: #9CA3AF;">-</td>`;
         }
@@ -70,7 +88,7 @@ export const generateStudentReportHTML = (
         narrativeRow = `
           <tr style="background-color: #F9FAFB; page-break-inside: avoid;">
             <td colspan="${totalColspan}" style="padding: 10px 12px; font-size: 11px; color: #374151; border-bottom: 1px solid #E5E7EB; line-height: 1.5; word-break: break-word;">
-              <strong>Catatan Perkembangan:</strong> ${val || '<span style="color: #9CA3AF; font-style: italic;">Belum ada catatan</span>'}
+              <strong>Catatan Perkembangan:</strong> ${val ? escapeHtml(val) : '<span style="color: #9CA3AF; font-style: italic;">Belum ada catatan</span>'}
             </td>
           </tr>
         `;
@@ -79,7 +97,7 @@ export const generateStudentReportHTML = (
       return `
         <tr style="page-break-inside: avoid;">
           <td style="text-align: center; font-weight: 600;">${index + 1}</td>
-          <td style="font-weight: 600; color: #1F2937;">${subject.name} <span style="font-size: 10px; color: #6B7280; font-weight: normal;">(${subject.category || 'Umum'})</span></td>
+          <td style="font-weight: 600; color: #1F2937;">${escapeHtml(subject.name)} <span style="font-size: 10px; color: #6B7280; font-weight: normal;">(${escapeHtml(subject.category || 'Umum')})</span></td>
           ${scoreCell}
           ${predicateCell}
         </tr>
@@ -182,28 +200,28 @@ export const generateStudentReportHTML = (
     </head>
     <body>
       <div class="header">
-        <div class="school-name">${displaySchoolName}</div>
+        <div class="school-name">${escapeHtml(displaySchoolName)}</div>
         <div class="report-title">Laporan Capaian Hasil Belajar Siswa (Rapor)</div>
       </div>
 
       <table class="meta-table">
         <tr>
           <td class="meta-label">Nama Siswa</td>
-          <td>: <strong>${student.name}</strong></td>
+          <td>: <strong>${escapeHtml(student.name)}</strong></td>
           <td class="meta-label">Tahun Ajaran</td>
-          <td>: ${config.academicYear}</td>
+          <td>: ${escapeHtml(config.academicYear)}</td>
         </tr>
         <tr>
           <td class="meta-label">Kelas</td>
-          <td>: ${student.className || '-'}</td>
+          <td>: ${escapeHtml(student.className || '-')}</td>
           <td class="meta-label">Semester</td>
-          <td>: ${config.term}</td>
+          <td>: ${escapeHtml(config.term)}</td>
         </tr>
         <tr>
           <td class="meta-label">Tanggal Lahir</td>
-          <td>: ${student.dob || '-'}</td>
+          <td>: ${escapeHtml(student.dob || '-')}</td>
           <td class="meta-label">Guru Kelas</td>
-          <td>: ${teacherName}</td>
+          <td>: ${escapeHtml(teacherName)}</td>
         </tr>
       </table>
 
@@ -233,7 +251,7 @@ export const generateStudentReportHTML = (
             <div>Dicetak tanggal: ${currentDate}</div>
             <div><strong>Guru Kelas</strong></div>
             <div class="sig-space"></div>
-            <div>( <strong>${teacherName}</strong> )</div>
+            <div>( <strong>${escapeHtml(teacherName)}</strong> )</div>
           </td>
         </tr>
       </table>
@@ -343,8 +361,8 @@ export const generateStudentIncidentReportHTML = (
                 .map(
                   (log: FollowUpLog) => `
                   <div style="background-color: #FFFFFF; padding: 6px 8px; border-radius: 4px; margin-top: 4px; border: 1px solid #E5E7EB; font-size: 10px;">
-                    <div><strong>${log.author || 'Guru'}</strong> • <span style="color: #6B7280;">${log.updatedAt || log.date || '-'}</span></div>
-                    <div style="color: #374151; margin-top: 2px;">${log.note}</div>
+                    <div><strong>${escapeHtml(log.author || 'Guru')}</strong> • <span style="color: #6B7280;">${escapeHtml(log.updatedAt || log.date || '-')}</span></div>
+                    <div style="color: #374151; margin-top: 2px;">${escapeHtml(log.note)}</div>
                   </div>
                 `
                 )
@@ -364,27 +382,27 @@ export const generateStudentIncidentReportHTML = (
               <div style="background-color: #F9FAFB; border: 1px solid #E5E7EB; border-radius: 8px; padding: 12px; margin-bottom: 12px; page-break-inside: avoid;">
                 <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 6px;">
                   <div>
-                    <span style="font-weight: bold; font-size: 13px; color: #111827;">#${index + 1} • ${item.category}</span>
-                    <span style="font-size: 11px; color: #6B7280; margin-left: 8px;">(${item.date || item.createdAt.split(' ')[0]})</span>
+                    <span style="font-weight: bold; font-size: 13px; color: #111827;">#${index + 1} • ${escapeHtml(item.category)}</span>
+                    <span style="font-size: 11px; color: #6B7280; margin-left: 8px;">(${escapeHtml(item.date || (item.createdAt ? item.createdAt.split(' ')[0] : '-'))})</span>
                   </div>
                   <div>
-                    <span style="background-color: ${priorityBg}; color: ${priorityColor}; padding: 2px 8px; border-radius: 12px; font-size: 10px; font-weight: bold; margin-right: 4px;">${item.priority || 'Medium'}</span>
-                    <span style="background-color: ${statusBg}; color: ${statusColor}; padding: 2px 8px; border-radius: 12px; font-size: 10px; font-weight: bold;">${item.status || 'Pending'}</span>
+                    <span style="background-color: ${priorityBg}; color: ${priorityColor}; padding: 2px 8px; border-radius: 12px; font-size: 10px; font-weight: bold; margin-right: 4px;">${escapeHtml(item.priority || 'Medium')}</span>
+                    <span style="background-color: ${statusBg}; color: ${statusColor}; padding: 2px 8px; border-radius: 12px; font-size: 10px; font-weight: bold;">${escapeHtml(item.status || 'Pending')}</span>
                   </div>
                 </div>
 
                 <div style="font-size: 10px; color: #6B7280; margin-bottom: 6px;">
-                  Pelapor: <strong>${item.teacherName || 'Guru'}</strong>
+                  Pelapor: <strong>${escapeHtml(item.teacherName || 'Guru')}</strong>
                 </div>
 
                 <div style="font-size: 12px; color: #1F2937; margin-bottom: 6px; line-height: 1.4;">
-                  <strong>Deskripsi Kejadian:</strong> ${item.description}
+                  <strong>Deskripsi Kejadian:</strong> ${escapeHtml(item.description)}
                 </div>
 
                 ${
                   item.actionTaken
                     ? `<div style="font-size: 11px; color: #1E40AF; background-color: #EFF6FF; padding: 6px 8px; border-radius: 4px; border-left: 3px solid #2563EB;">
-                        <strong>Tindakan Awal Guru:</strong> ${item.actionTaken}
+                        <strong>Tindakan Awal Guru:</strong> ${escapeHtml(item.actionTaken)}
                       </div>`
                     : ''
                 }
@@ -507,22 +525,22 @@ export const generateStudentIncidentReportHTML = (
     </head>
     <body>
       <div class="header">
-        <div class="school-name">${displaySchoolName}</div>
+        <div class="school-name">${escapeHtml(displaySchoolName)}</div>
         <div class="report-title">Laporan Rekapitulasi Catatan Perilaku & Observasi Siswa</div>
       </div>
 
       <table class="meta-table">
         <tr>
           <td class="meta-label">Nama Siswa</td>
-          <td>: <strong>${student.name}</strong></td>
+          <td>: <strong>${escapeHtml(student.name)}</strong></td>
           <td class="meta-label">Tanggal Cetak</td>
           <td>: ${currentDate}</td>
         </tr>
         <tr>
           <td class="meta-label">Kelas</td>
-          <td>: ${student.className || '-'}</td>
+          <td>: ${escapeHtml(student.className || '-')}</td>
           <td class="meta-label">Wali / Guru Kelas</td>
-          <td>: ${teacherName}</td>
+          <td>: ${escapeHtml(teacherName)}</td>
         </tr>
       </table>
 
@@ -560,7 +578,7 @@ export const generateStudentIncidentReportHTML = (
             <div>Dicetak tanggal: ${currentDate}</div>
             <div><strong>Guru / Wali Kelas</strong></div>
             <div class="sig-space"></div>
-            <div>( <strong>${teacherName}</strong> )</div>
+            <div>( <strong>${escapeHtml(teacherName)}</strong> )</div>
           </td>
         </tr>
       </table>
@@ -659,13 +677,13 @@ export const generateStudentAttendanceReportHTML = (
             return `
               <tr style="page-break-inside: avoid;">
                 <td style="text-align: center; font-weight: 600; color: #6B7280;">${index + 1}</td>
-                <td style="font-weight: 600; color: #111827;">${rec.date}</td>
+                <td style="font-weight: 600; color: #111827;">${escapeHtml(rec.date)}</td>
                 <td style="text-align: center;">
                   <span style="background-color: ${statusBg}; color: ${statusColor}; padding: 3px 10px; border-radius: 12px; font-size: 10px; font-weight: bold; display: inline-block;">
-                    ${statusLabel}
+                    ${escapeHtml(statusLabel)}
                   </span>
                 </td>
-                <td style="color: #4B5563; font-size: 11px;">${rec.teacherName || teacherName}</td>
+                <td style="color: #4B5563; font-size: 11px;">${escapeHtml(rec.teacherName || teacherName)}</td>
               </tr>
             `;
           })
@@ -794,22 +812,22 @@ export const generateStudentAttendanceReportHTML = (
     </head>
     <body>
       <div class="header">
-        <div class="school-name">${displaySchoolName}</div>
+        <div class="school-name">${escapeHtml(displaySchoolName)}</div>
         <div class="report-title">Laporan Rekapitulasi Presensi & Kehadiran Siswa</div>
       </div>
 
       <table class="meta-table">
         <tr>
           <td class="meta-label">Nama Siswa</td>
-          <td>: <strong>${student.name}</strong></td>
+          <td>: <strong>${escapeHtml(student.name)}</strong></td>
           <td class="meta-label">Tanggal Cetak</td>
           <td>: ${currentDate}</td>
         </tr>
         <tr>
           <td class="meta-label">Kelas</td>
-          <td>: ${student.className || '-'}</td>
+          <td>: ${escapeHtml(student.className || '-')}</td>
           <td class="meta-label">Wali / Guru Kelas</td>
-          <td>: ${teacherName}</td>
+          <td>: ${escapeHtml(teacherName)}</td>
         </tr>
       </table>
 
@@ -866,7 +884,7 @@ export const generateStudentAttendanceReportHTML = (
             <div>Dicetak tanggal: ${currentDate}</div>
             <div><strong>Guru / Wali Kelas</strong></div>
             <div class="sig-space"></div>
-            <div>( <strong>${teacherName}</strong> )</div>
+            <div>( <strong>${escapeHtml(teacherName)}</strong> )</div>
           </td>
         </tr>
       </table>

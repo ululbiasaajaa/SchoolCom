@@ -1,24 +1,29 @@
 import { deleteApp, initializeApp } from 'firebase/app';
 import {
-    createUserWithEmailAndPassword,
-    deleteUser,
-    User as FirebaseUser,
-    getAuth,
+  createUserWithEmailAndPassword,
+  deleteUser,
+  User as FirebaseUser,
+  getAuth,
 } from 'firebase/auth';
 import {
-    arrayRemove,
-    arrayUnion,
-    collection,
-    deleteDoc,
-    doc,
-    onSnapshot,
-    orderBy,
-    query,
-    setDoc,
-    updateDoc,
+  arrayRemove,
+  arrayUnion,
+  collection,
+  doc,
+  onSnapshot,
+  orderBy,
+  query,
+  setDoc,
+  updateDoc,
 } from 'firebase/firestore';
 import { db, firebaseConfig } from '../config/firebase';
+// FIX: Jangan duplikasi updateStudent/deleteStudent di sini. Sebelumnya ada 2 implementasi
+// berbeda untuk operasi yang sama (adminService vs studentService) — versi di file ini TIDAK
+// menulis field `updatedAt`, sedangkan versi studentService menulis. Tergantung mana yang
+// dipanggil dari UI, field `updatedAt` siswa bisa jadi tidak konsisten. Sekarang cukup
+// delegasikan ke studentService supaya cuma ada SATU sumber kebenaran.
 import { Student, User } from '../types/schoolcom';
+import { deleteStudent as deleteStudentImpl, updateStudent as updateStudentImpl } from './studentService';
 
 export interface CreateUserDTO {
   name: string;
@@ -191,12 +196,10 @@ export const createStudent = async (studentData: CreateStudentDTO): Promise<stri
   return newStudentRef.id;
 };
 
-export const updateStudent = async (studentId: string, studentData: Partial<Student>) => {
-  const studentRef = doc(db, 'students', studentId);
-  await updateDoc(studentRef, studentData);
-};
+// FIX: dulu ada implementasi sendiri di sini yang tidak menulis `updatedAt`.
+// Sekarang delegasi ke studentService supaya perilakunya selalu konsisten
+// di manapun updateStudent/deleteStudent dipanggil dari UI.
+export const updateStudent = (studentId: string, studentData: Partial<Student>) =>
+  updateStudentImpl(studentId, studentData);
 
-export const deleteStudent = async (studentId: string) => {
-  const studentRef = doc(db, 'students', studentId);
-  await deleteDoc(studentRef);
-};
+export const deleteStudent = (studentId: string) => deleteStudentImpl(studentId);

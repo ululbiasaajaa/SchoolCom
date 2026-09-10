@@ -30,7 +30,14 @@ export default function WhatsAppModal({
 
   const generateDraft = (parent: Parent, targetStudent: Student) => {
     const now = new Date();
-    const todayStr = `${now.getDate()} August ${now.getFullYear()}`;
+    // FIX BUG: sebelumnya nama bulan di-hardcode "August" apapun bulan aslinya,
+    // jadi draft pesan selalu salah kecuali kebetulan lagi bulan Agustus.
+    // Sekarang diambil dari tanggal asli, format Indonesia.
+    const todayStr = now.toLocaleDateString('id-ID', {
+      day: 'numeric',
+      month: 'long',
+      year: 'numeric',
+    });
     const relationText = parent.relationship || (parent as any).relation || 'Wali';
 
     return `Assalamu'alaikum Bapak/Ibu ${parent.name} (${relationText}). Kami ingin menyampaikan informasi mengenai Ananda ${targetStudent.name} terkait kegiatan/kejadian pada ${todayStr}.\n\nCatatan: ${incident ? incident.description : 'Perkembangan harian di kelas.'}\n\nMohon dapat diperhatikan dan apabila diperlukan kami akan melakukan tindak lanjut. Terima kasih.`;

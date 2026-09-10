@@ -1,5 +1,6 @@
 import {
   doc,
+  getDoc,
   serverTimestamp,
   setDoc
 } from 'firebase/firestore';
@@ -25,19 +26,31 @@ const TESTER_STUDENT: Student = {
 
 /**
  * Menambahkan Data Siswa Tester Rasyid ke Cloud Firestore
+ *
+ * FIX BUG: Versi sebelumnya menulis `createdAt: serverTimestamp()` bersamaan dengan
+ * `{ merge: true }` di SETIAP pemanggilan. Padahal `merge: true` tidak membuat Firestore
+ * "skip" field yang eksplisit dikirim — field itu tetap ditimpa. Jadi setiap kali fungsi ini
+ * dipanggil ulang (misal re-seed manual), `createdAt` ikut ke-reset ke waktu sekarang,
+ * padahal niatnya cuma diset sekali pas dokumen pertama kali dibuat.
+ *
+ * Sekarang: cek dulu apakah dokumen sudah ada. Kalau sudah ada, `createdAt` TIDAK dikirim
+ * ulang (biar nilai lama tetap dipertahankan oleh merge). Kalau belum ada, baru di-set.
  */
 export const seedRasyidStudent = async (): Promise<boolean> => {
   try {
     const { id, ...data } = TESTER_STUDENT;
-    
-    // Simpan/overwrite dokumen s4 tanpa mengganggu s1, s2, s3
+    const docRef = doc(db, 'students', id);
+
+    const existingSnap = await getDoc(docRef);
+    const isFirstTimeCreation = !existingSnap.exists();
+
     await setDoc(
-      doc(db, 'students', id),
+      docRef,
       {
         ...data,
         updatedAt: serverTimestamp(),
-        // serverTimestamp() untuk createdAt diset saat dokumen pertama kali dibuat
-        createdAt: serverTimestamp(),
+        // createdAt HANYA dikirim kalau dokumen belum pernah ada sebelumnya
+        ...(isFirstTimeCreation ? { createdAt: serverTimestamp() } : {}),
       },
       { merge: true } // Mencegah data terhapus jika dire-seed
     );

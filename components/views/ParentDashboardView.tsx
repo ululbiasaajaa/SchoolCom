@@ -434,7 +434,6 @@ export default function ParentDashboardView({
     try {
       const resolvedTeacherName =
         assessments.find((a) => a.teacherName)?.teacherName ||
-        activeStudent.className ||
         'Wali Kelas';
 
       await exportStudentReportPDF(activeStudent, config, assessments, resolvedTeacherName, DEFAULT_SCHOOL_NAME);
@@ -454,7 +453,6 @@ export default function ParentDashboardView({
     try {
       const resolvedTeacherName =
         attendanceRecords.find((r) => r.teacherName)?.teacherName ||
-        activeStudent.className ||
         'Wali Kelas';
 
       await exportStudentAttendanceReportPDF(
@@ -479,7 +477,6 @@ export default function ParentDashboardView({
     try {
       const resolvedTeacherName =
         currentStudentIncidents.find((i) => i.teacherName)?.teacherName ||
-        activeStudent.className ||
         'Wali Kelas';
 
       await exportStudentIncidentReportPDF(
@@ -502,7 +499,6 @@ export default function ParentDashboardView({
 
     const resolvedTeacherName =
       periodSummary.assessments.find((a) => a.teacherName)?.teacherName ||
-      activeStudent.className ||
       'Wali Kelas';
 
     const dummyConfig: AssessmentConfig = {
@@ -514,7 +510,11 @@ export default function ParentDashboardView({
         id: a.subjectId,
         name: a.subjectName,
         category: 'Academic',
-        fields: { enableNumeric: true, enablePredicate: true, enableNarrative: true },
+        fields: {
+          enableNumeric: a.score !== null && a.score !== undefined,
+          enablePredicate: !!a.predicate,
+          enableNarrative: !!a.narrative,
+        },
       })),
       updatedAt: new Date().toISOString(),
     };

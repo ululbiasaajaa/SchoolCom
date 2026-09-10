@@ -27,6 +27,25 @@ export const filterAssessmentsByStudent = (
 };
 
 /**
+ * FIX: Helper numerik untuk membandingkan urutan term (semester) secara aman.
+ * Sebelumnya sortAssessmentPeriods mengandalkan `localeCompare` string biasa pada
+ * label term ("Semester 1" vs "Semester 2") — kebetulan benar karena beda 1 karakter
+ * digit di akhir, tapi tidak konsisten dengan cara analyticsHelper.ts menentukan urutan
+ * term (yang tadinya `term.includes('2')`, sekarang ekstrak digit via regex). Dua
+ * pendekatan beda untuk hal yang sama = rawan hasil sorting yang berbeda kalau label
+ * term berubah. Sekarang keduanya pakai logic ekstraksi angka yang sama.
+ */
+const extractTermOrderValue = (term: string): number => {
+  const numericMatch = term.match(/\d+/);
+  if (numericMatch) {
+    return parseInt(numericMatch[0], 10);
+  }
+  // Fallback non-numerik (misal "Ganjil"/"Genap") — pakai kode karakter huruf pertama
+  // supaya tetap terurut konsisten alih-alih diperlakukan sama semua.
+  return term.trim().charCodeAt(0) || 0;
+};
+
+/**
  * Helper internal untuk membandingkan urutan periode (Tahun Ajaran & Semester) secara Descending.
  */
 export const sortAssessmentPeriods = (
@@ -37,8 +56,8 @@ export const sortAssessmentPeriods = (
     if (a.academicYear !== b.academicYear) {
       return b.academicYear.localeCompare(a.academicYear);
     }
-    // 2. Bandingkan Semester (Desc)
-    return b.term.localeCompare(a.term);
+    // 2. Bandingkan Semester (Desc) — numerik, bukan string localeCompare
+    return extractTermOrderValue(b.term) - extractTermOrderValue(a.term);
   });
 };
 

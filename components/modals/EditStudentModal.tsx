@@ -11,7 +11,9 @@ import {
 } from 'react-native';
 
 // Import Types & Service
-import { deleteStudent, updateStudent } from '../../service/studentService';
+// FIX: pakai deleteStudentCascade (bukan deleteStudent biasa) supaya data terkait
+// (assessments, attendance, incidents, link ke parent) ikut dibersihkan saat siswa dihapus.
+import { deleteStudentCascade, updateStudent } from '../../service/studentService';
 import { Student } from '../../types/schoolcom';
 
 interface EditStudentModalProps {
@@ -83,7 +85,7 @@ const EditStudentModal: React.FC<EditStudentModalProps> = ({ visible, student, o
 
     Alert.alert(
       'Konfirmasi Hapus Siswa',
-      `Apakah Anda yakin ingin menghapus siswa "${student.name}"? Data yang dihapus tidak dapat dikembalikan.`,
+      `Apakah Anda yakin ingin menghapus siswa "${student.name}"? Seluruh riwayat nilai, presensi, dan catatan perilaku siswa ini juga akan ikut terhapus permanen dan tidak dapat dikembalikan.`,
       [
         { text: 'Batal', style: 'cancel' },
         {
@@ -92,8 +94,8 @@ const EditStudentModal: React.FC<EditStudentModalProps> = ({ visible, student, o
           onPress: async () => {
             setIsLoading(true);
             try {
-              await deleteStudent(student.id);
-              Alert.alert('Sukses', 'Data siswa berhasil dihapus dari database.');
+              await deleteStudentCascade(student.id);
+              Alert.alert('Sukses', 'Data siswa beserta seluruh riwayat terkait berhasil dihapus dari database.');
               onClose();
             } catch (error: unknown) {
               console.error('Error deleting student:', error);
