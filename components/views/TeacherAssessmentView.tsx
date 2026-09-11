@@ -23,6 +23,7 @@ import {
 } from '../../types/schoolcom';
 import { exportAssessmentsToCSV } from '../../utils/csvExporter';
 import { exportStudentReportPDF } from '../../utils/pdfGenerator';
+import DailyGradeModal from '../modals/DailyGradeModal';
 
 interface TeacherAssessmentViewProps {
   students: Student[];
@@ -56,6 +57,9 @@ export default function TeacherAssessmentView({
   const [formNarrative, setFormNarrative] = useState<string>('');
   const [isSaving, setIsSaving] = useState<boolean>(false);
   const [savingMode, setSavingMode] = useState<'single' | 'continue' | null>(null);
+
+  // State Modal Nilai Harian (Phase 23)
+  const [isDailyGradeModalOpen, setIsDailyGradeModalOpen] = useState<boolean>(false);
 
   // 1. Subscribe Realtime Config berdasarkan Periode Aktif
   useEffect(() => {
@@ -286,6 +290,22 @@ export default function TeacherAssessmentView({
     exportAssessmentsToCSV(students, config, existingAssessments, teacherName);
   };
 
+  // Handle Buka Modal Nilai Harian (Phase 23)
+  // FIX: butuh `classId` (hasil migrasi Phase 22) buat nyimpen dailyGrades sesuai
+  // firestore.rules yang ngecek `isTeacherForClassId`. Kalau siswa ini belum
+  // ke-migrasi (classId kosong), kasih tau guru daripada nyimpen data yang bakal
+  // ditolak rules atau nyimpen classId kosong yang gak konsisten.
+  const handleOpenDailyGrade = () => {
+    if (!activeStudent?.classId) {
+      Alert.alert(
+        'Kelas Belum Termigrasi',
+        'Siswa ini belum punya data kelas hasil migrasi (classId). Jalankan "Migrasi Data Kelas Lama" dulu di tab Kelas (Admin) sebelum mengisi nilai harian.'
+      );
+      return;
+    }
+    setIsDailyGradeModalOpen(true);
+  };
+
   return (
     <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
       {/* Header Banner */}
@@ -415,7 +435,11 @@ export default function TeacherAssessmentView({
                     </Text>
                   </View>
 
-                  <View style={{ flexDirection: 'row', gap: 6 }}>
+                  <View style={{ flexDirection: 'row', gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                    <TouchableOpacity style={styles.dailyGradeBtn} onPress={handleOpenDailyGrade}>
+                      <Text style={styles.dailyGradeBtnText}>📝 Nilai Harian</Text>
+                    </TouchableOpacity>
+
                     <TouchableOpacity style={styles.pdfExportBtn} onPress={handleExportPDF}>
                       <Text style={styles.pdfExportBtnText}>📄 PDF Rapor</Text>
                     </TouchableOpacity>
@@ -528,6 +552,22 @@ export default function TeacherAssessmentView({
             </View>
           )}
         </>
+      )}
+
+      {/* MODAL NILAI HARIAN (PHASE 23) */}
+      {activeStudent && activeSubject && activeStudent.classId && (
+        <DailyGradeModal
+          visible={isDailyGradeModalOpen}
+          onClose={() => setIsDailyGradeModalOpen(false)}
+          studentId={activeStudent.id}
+          studentName={activeStudent.name}
+          classId={activeStudent.classId}
+          domainId={activeSubject.id}
+          domainName={activeSubject.name}
+          academicYear={selectedAcademicYear}
+          term={selectedTerm}
+          teacherName={teacherName}
+        />
       )}
     </ScrollView>
   );
@@ -684,6 +724,19 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '700',
     color: '#1F2937',
+  },
+  dailyGradeBtn: {
+    backgroundColor: '#FEF3C7',
+    borderWidth: 1,
+    borderColor: '#FDE68A',
+    paddingHorizontal: 8,
+    paddingVertical: 5,
+    borderRadius: 6,
+  },
+  dailyGradeBtnText: {
+    color: '#D97706',
+    fontSize: 11,
+    fontWeight: '600',
   },
   pdfExportBtn: {
     backgroundColor: '#EFF6FF',

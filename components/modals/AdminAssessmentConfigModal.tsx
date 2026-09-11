@@ -16,10 +16,12 @@ import {
   saveAssessmentConfig,
   subscribeToAssessmentConfig,
 } from '../../service/assessmentService';
+import { subscribeToAllCurriculum } from '../../service/curriculumService';
 import {
   AssessmentConfig,
   AssessmentPredicateConfig,
   AssessmentSubjectConfig,
+  CurriculumFramework,
 } from '../../types/schoolcom';
 
 interface AdminAssessmentConfigModalProps {
@@ -62,6 +64,17 @@ export default function AdminAssessmentConfigModal({
 
   // State Input Tambah Predicate Baru
   const [newPredicateLabel, setNewPredicateLabel] = useState<string>('');
+
+  // State Daftar CP (Phase 25 - untuk picker "Tautkan ke CP" saat tambah subjek baru)
+  const [cpList, setCpList] = useState<CurriculumFramework[]>([]);
+  const [selectedCpIdForNewSubject, setSelectedCpIdForNewSubject] = useState<string | null>(null);
+
+  // Subscribe Daftar CP saat Modal Terbuka (lepas dari periode, CP tidak terikat academicYear/term)
+  useEffect(() => {
+    if (!visible) return;
+    const unsub = subscribeToAllCurriculum((items) => setCpList(items));
+    return () => unsub();
+  }, [visible]);
 
   // 1. Subscribe Realtime Config saat Modal Terbuka & Periode Berubah
   useEffect(() => {
@@ -156,6 +169,10 @@ export default function AdminAssessmentConfigModal({
     }
 
     const newId = `sub_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+    const linkedCp = selectedCpIdForNewSubject
+      ? cpList.find((c) => c.id === selectedCpIdForNewSubject)
+      : null;
+
     const newSub: AssessmentSubjectConfig = {
       id: newId,
       name: newSubjectName.trim(),
@@ -165,10 +182,14 @@ export default function AdminAssessmentConfigModal({
         enablePredicate: newEnablePredicate,
         enableNarrative: newEnableNarrative,
       },
+      // Phase 25: salin cpDescription langsung (denormalized) supaya pdfGenerator.ts
+      // gak perlu fetch tambahan pas generate rapor
+      ...(linkedCp ? { cpId: linkedCp.id, cpDescription: linkedCp.cpDescription } : {}),
     };
 
     setSubjects((prev) => [...prev, newSub]);
     setNewSubjectName('');
+    setSelectedCpIdForNewSubject(null);
   };
 
   // Handler Hapus Subject dari Draft Config
@@ -365,9 +386,16 @@ export default function AdminAssessmentConfigModal({
                   subjects.map((sub: AssessmentSubjectConfig) => (
                     <View key={sub.id} style={styles.subjectCard}>
                       <View style={styles.subjectHeaderRow}>
-                        <View>
+                        <View style={{ flex: 1 }}>
                           <Text style={styles.subjectName}>{sub.name}</Text>
                           <Text style={styles.subjectCategory}>Kategori: {sub.category}</Text>
+                          {sub.cpDescription ? (
+                            <View style={styles.cpLinkedBadge}>
+                              <Text style={styles.cpLinkedBadgeText} numberOfLines={2}>
+                                📖 CP: {sub.cpDescription}
+                              </Text>
+                            </View>
+                          ) : null}
                         </View>
                         <TouchableOpacity
                           style={styles.deleteSubBtn}
@@ -429,6 +457,47 @@ export default function AdminAssessmentConfigModal({
                     onChangeText={setNewSubjectCategory}
                   />
 
+                  {/* Picker Tautkan ke CP (Phase 25 - Opsional) */}
+                  <Text style={styles.fieldToggleTitle}>Tautkan ke Capaian Pembelajaran (Opsional):</Text>
+                  {cpList.length === 0 ? (
+                    <Text style={styles.emptyText}>
+                      Belum ada CP terdaftar. Tambah dulu di tab "CP/ATP" kalau mau menautkan.
+                    </Text>
+                  ) : (
+                    <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 10 }}>
+                      <TouchableOpacity
+                        style={[
+                          styles.cpPickerChip,
+                          selectedCpIdForNewSubject === null && styles.cpPickerChipActive,
+                        ]}
+                        onPress={() => setSelectedCpIdForNewSubject(null)}
+                      >
+                        <Text
+                          style={[
+                            styles.cpPickerChipText,
+                            selectedCpIdForNewSubject === null && styles.cpPickerChipTextActive,
+                          ]}
+                        >
+                          Tanpa CP
+                        </Text>
+                      </TouchableOpacity>
+                      {cpList.map((cp) => {
+                        const isSelected = selectedCpIdForNewSubject === cp.id;
+                        return (
+                          <TouchableOpacity
+                            key={cp.id}
+                            style={[styles.cpPickerChip, isSelected && styles.cpPickerChipActive]}
+                            onPress={() => setSelectedCpIdForNewSubject(cp.id)}
+                          >
+                            <Text style={[styles.cpPickerChipText, isSelected && styles.cpPickerChipTextActive]}>
+                              {cp.educationLevel} • {cp.domainName}
+                            </Text>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </ScrollView>
+                  )}
+
                   <Text style={styles.fieldToggleTitle}>Field Penilaian yang Aktif:</Text>
                   <View style={styles.toggleRowContainer}>
                     <TouchableOpacity
@@ -488,6 +557,43 @@ export default function AdminAssessmentConfigModal({
 }
 
 const styles = StyleSheet.create({
+  cpLinkedBadge: {
+    backgroundColor: '#EFF6FF',
+    borderWidth: 1,
+    borderColor: '#BFDBFE',
+    borderRadius: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    marginTop: 6,
+    alignSelf: 'flex-start',
+  },
+  cpLinkedBadgeText: {
+    fontSize: 10,
+    color: '#1E40AF',
+    fontWeight: '600',
+    maxWidth: 240,
+  },
+  cpPickerChip: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 16,
+    backgroundColor: '#F3F4F6',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    marginRight: 6,
+  },
+  cpPickerChipActive: {
+    backgroundColor: '#2563EB',
+    borderColor: '#2563EB',
+  },
+  cpPickerChipText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#4B5563',
+  },
+  cpPickerChipTextActive: {
+    color: '#FFFFFF',
+  },
   modalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.5)',

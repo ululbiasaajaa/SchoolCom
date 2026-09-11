@@ -23,11 +23,17 @@ import {
   AttendanceRecord,
   subscribeToStudentAttendance,
 } from '../../service/attendanceService';
+// Import Daily Grade Service (Phase 24 - Transparansi Nilai)
+import {
+  calculateSuggestedScore,
+  subscribeToDailyGradesByStudent,
+} from '../../service/dailyGradeService';
 import {
   subscribeToIncidentsByStudentIds,
 } from '../../service/incidentService';
 import {
   AssessmentConfig,
+  DailyGrade,
   Incident,
   Student,
   StudentAssessment,
@@ -83,6 +89,10 @@ export default function ParentDashboardView({
   // State khusus Incident / Catatan Perilaku (Sub-Phase 15.2)
   const [incidents, setIncidents] = useState<Incident[]>([]);
   const [isIncidentsLoading, setIsIncidentsLoading] = useState<boolean>(true);
+
+  // State khusus Nilai Harian (Phase 24 - Transparansi Nilai, Terikat Periode Aktif)
+  const [dailyGrades, setDailyGrades] = useState<DailyGrade[]>([]);
+  const [isDailyGradesLoading, setIsDailyGradesLoading] = useState<boolean>(true);
 
   // 4. State History Rapor & Penilaian (Tahap 11.2)
   const [allHistoryAssessments, setAllHistoryAssessments] = useState<StudentAssessment[]>([]);
@@ -226,6 +236,30 @@ export default function ParentDashboardView({
     };
   }, [currentUser.studentIds]);
 
+  // 8D. Realtime Subscription Manager khusus Nilai Harian (Phase 24 - Terikat Periode Aktif)
+  useEffect(() => {
+    if (!selectedStudentId) {
+      setDailyGrades([]);
+      setIsDailyGradesLoading(false);
+      return;
+    }
+
+    setIsDailyGradesLoading(true);
+    const unsubDailyGrades = subscribeToDailyGradesByStudent(
+      selectedStudentId,
+      selectedAcademicYear,
+      selectedTerm,
+      (fetchedGrades) => {
+        setDailyGrades(fetchedGrades);
+        setIsDailyGradesLoading(false);
+      }
+    );
+
+    return () => {
+      unsubDailyGrades();
+    };
+  }, [selectedStudentId, selectedAcademicYear, selectedTerm]);
+
   // 9. Realtime Subscription Manager khusus untuk History & Analytics (Lintas Periode)
   useEffect(() => {
     if (!selectedStudentId) {
@@ -277,6 +311,30 @@ export default function ParentDashboardView({
   const monthlyAttendanceGroups = useMemo(() => {
     return groupAttendanceByMonth(attendanceRecords);
   }, [attendanceRecords]);
+
+  // 14. Pengelompokan Nilai Harian per Mata Pelajaran (Phase 24)
+  // `domainId` di dailyGrades untuk sekarang bernilai sama dengan `subjectId` di
+  // assessmentConfigs/assessments (lihat catatan di dailyGradeService.ts), jadi
+  // nama mapelnya di-lookup dari `config.subjects` yang sama seperti nilai rapor.
+  const dailyGradesBySubject = useMemo(() => {
+    const groups = new Map<string, DailyGrade[]>();
+    dailyGrades.forEach((g) => {
+      const existing = groups.get(g.domainId) || [];
+      existing.push(g);
+      groups.set(g.domainId, existing);
+    });
+
+    return Array.from(groups.entries()).map(([domainId, entries]) => {
+      const subjectName =
+        config?.subjects.find((s) => s.id === domainId)?.name || 'Mata Pelajaran';
+      return {
+        domainId,
+        subjectName,
+        entries,
+        average: calculateSuggestedScore(entries),
+      };
+    });
+  }, [dailyGrades, config]);
 
   // Data Siswa Aktif yang Dipilih
   const activeStudent = parentStudents.find((s) => s.id === selectedStudentId);
@@ -755,6 +813,45 @@ export default function ParentDashboardView({
                   <Text style={styles.emptyText}>Belum ada riwayat presensi tercatat untuk siswa ini.</Text>
                 )}
               </>
+            )}
+          </View>
+
+          {/* CARD BARU: NILAI HARIAN / TRANSPARANSI NILAI (PHASE 24) */}
+          <View style={styles.card}>
+            <View style={styles.attendanceCardHeaderRow}>
+              <Text style={styles.cardHeader}>📈 Nilai Harian</Text>
+              {dailyGrades.length > 0 && (
+                <View style={styles.rateBadge}>
+                  <Text style={styles.rateBadgeText}>{dailyGrades.length} Entri</Text>
+                </View>
+              )}
+            </View>
+
+            {isDailyGradesLoading ? (
+              <ActivityIndicator size="small" color="#1E88E5" style={{ marginVertical: 12 }} />
+            ) : dailyGradesBySubject.length > 0 ? (
+              dailyGradesBySubject.map((group) => (
+                <View key={group.domainId} style={styles.dailyGradeSubjectCard}>
+                  <View style={styles.dailyGradeSubjectHeader}>
+                    <Text style={styles.dailyGradeSubjectName}>{group.subjectName}</Text>
+                    <Text style={styles.dailyGradeSubjectAverage}>
+                      Rata-rata: {group.average !== null ? group.average.toFixed(1) : '-'}
+                    </Text>
+                  </View>
+                  {group.entries.map((entry) => (
+                    <View key={entry.id} style={styles.dailyGradeEntryRow}>
+                      <Text style={styles.dailyGradeEntryLabel}>
+                        {entry.type} • {entry.date}
+                      </Text>
+                      <Text style={styles.dailyGradeEntryScore}>{entry.score}</Text>
+                    </View>
+                  ))}
+                </View>
+              ))
+            ) : (
+              <Text style={styles.emptyText}>
+                Belum ada nilai harian tercatat untuk periode ini.
+              </Text>
             )}
           </View>
 
@@ -1457,6 +1554,47 @@ const styles = StyleSheet.create({
   statusBadgeText: {
     fontSize: 11,
     fontWeight: 'bold',
+  },
+  dailyGradeSubjectCard: {
+    backgroundColor: '#F8F9FA',
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: '#E9ECEF',
+  },
+  dailyGradeSubjectHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    borderBottomWidth: 1,
+    borderBottomColor: '#E0E0E0',
+    paddingBottom: 6,
+    marginBottom: 6,
+  },
+  dailyGradeSubjectName: {
+    fontSize: 13,
+    fontWeight: 'bold',
+    color: '#1565C0',
+  },
+  dailyGradeSubjectAverage: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#2E7D32',
+  },
+  dailyGradeEntryRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingVertical: 3,
+  },
+  dailyGradeEntryLabel: {
+    fontSize: 12,
+    color: '#455A64',
+  },
+  dailyGradeEntryScore: {
+    fontSize: 12,
+    fontWeight: 'bold',
+    color: '#37474F',
   },
   analyticsMainBox: {
     flexDirection: 'row',

@@ -112,24 +112,42 @@ service cloud.firestore {
     }
 
     // ==========================================
-    // 1. COLLECTION: users (HARDENED 18.1 & 18.3)
+    // HELPER FUNCTIONS CLASSES & CURRICULUM (PHASE 22)
+    // ==========================================
+    // Versi classId (bukan className string) dari isTeacherForClass(), dipakai untuk
+    // collection baru yang mereferensikan `classes/{id}` langsung (misal dailyGrades),
+    // bukan lagi field className bebas seperti struktur lama.
+    function isTeacherForClassId(classId) {
+      let userData = getUserData();
+      return userData.role == 'teacher' &&
+        userData.classIds != null &&
+        classId != null &&
+        userData.classIds.hasAny([classId]);
+    }
+
+    // ==========================================
+    // 1. COLLECTION: users (HARDENED 18.1 & 18.3, DIPERBARUI PHASE 22)
     // ==========================================
     match /users/{userId} {
       allow read: if isAuthenticated();
       
       // FIX 18.3: Mencegah penyuntikan atribut classes saat self-signup Parent
+      // FIX PHASE 22: `classIds` ikut diblokir dari self-signup, konsisten sama `classes`.
       allow create: if isAdmin() || (
         isAuthenticated() && 
         request.auth.uid == userId && 
         request.resource.data.role == 'parent' &&
-        (!request.resource.data.keys().hasAny(['classes']))
+        (!request.resource.data.keys().hasAny(['classes', 'classIds']))
       );
       
       // FIX 18.1 (P0-2): Mencegah self-privilege escalation (role, classes, studentIds) saat update
+      // FIX PHASE 22: `classIds` (hasil migrasi Phase 22) ikut dikunci dari self-modification —
+      // tanpa ini, guru bisa nambahin classId kelas lain ke dirinya sendiri buat baca dailyGrades
+      // kelas yang bukan tanggung jawabnya.
       allow update: if isAdmin() || (
         isAuthenticated() && 
         request.auth.uid == userId && 
-        (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['role', 'classes', 'studentIds']))
+        (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['role', 'classes', 'classIds', 'studentIds']))
       );
       
       allow delete: if isAdmin();
@@ -247,7 +265,65 @@ service cloud.firestore {
     }
 
     // ==========================================
-    // 8. CATCH-ALL (DEFAULT DENY)
+    // 8. COLLECTION: classes (PHASE 22)
+    // ==========================================
+    match /classes/{classId} {
+      // READ: Semua role yang login boleh baca (admin buat kelola, guru & parent buat
+      // lihat nama/jenjang kelas di berbagai UI — misal dropdown, badge jenjang, dsb).
+      allow read: if isAuthenticated();
+      // WRITE: Hanya Admin. Pembuatan/perubahan struktur kelas adalah keputusan level sekolah.
+      allow create, update, delete: if isAdmin();
+    }
+
+    // ==========================================
+    // 9. COLLECTION: curriculumFramework — CP (PHASE 22)
+    // ==========================================
+    match /curriculumFramework/{cpId} {
+      // Sama seperti assessmentConfigs: semua yang login boleh baca (guru butuh baca ini
+      // buat nampilin form nilai berbasis CP), tapi cuma Admin yang boleh susun/ubah CP.
+      allow read: if isAuthenticated();
+      allow create, update, delete: if isAdmin();
+    }
+
+    // ==========================================
+    // 10. COLLECTION: atp — Alur Tujuan Pembelajaran (PHASE 22)
+    // ==========================================
+    match /atp/{cpId} {
+      allow read: if isAuthenticated();
+      allow create, update, delete: if isAdmin();
+    }
+
+    // ==========================================
+    // 11. COLLECTION: dailyGrades — Nilai Harian (PHASE 23)
+    // ==========================================
+    match /dailyGrades/{gradeId} {
+      // READ: sama persis pola assessments — guru/admin lihat semua, parent cuma anaknya
+      // sendiri (ini yang jadi dasar Phase 24 Transparansi Nilai).
+      allow read: if isTeacherOrAdmin() || isParentOfStudent(resource.data.studentId);
+
+      // CREATE: Admin bebas, Guru cuma boleh buat nilai harian untuk classId
+      // yang ada di classIds binaannya sendiri (bukan className string lagi).
+      allow create: if isAdmin() || (
+        isAuthenticated() &&
+        request.resource.data.classId != null &&
+        isTeacherForClassId(request.resource.data.classId)
+      );
+
+      // UPDATE: Guru kelas asal boleh, tapi field identitas/ownership dikunci
+      // (classId, studentId, domainId gak boleh diubah — kalau mau pindah, hapus & buat baru).
+      allow update: if isAdmin() || (
+        isAuthenticated() &&
+        isTeacherForClassId(resource.data.classId) &&
+        request.resource.data.classId == resource.data.classId &&
+        request.resource.data.studentId == resource.data.studentId &&
+        request.resource.data.domainId == resource.data.domainId
+      );
+
+      allow delete: if isAdmin();
+    }
+
+    // ==========================================
+    // 12. CATCH-ALL (DEFAULT DENY)
     // ==========================================
     match /{document=**} {
       allow read, write: if false;

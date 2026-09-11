@@ -1,0 +1,441 @@
+import React, { useEffect, useState } from 'react';
+import {
+    ActivityIndicator,
+    Alert,
+    Modal,
+    ScrollView,
+    StyleSheet,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    View,
+} from 'react-native';
+
+import { createClass, subscribeToClasses } from '../../service/classService';
+import { migrateClassNamesToClasses } from '../../service/migrationService';
+import { EducationLevel, SchoolClass } from '../../types/schoolcom';
+
+const EDUCATION_LEVELS: EducationLevel[] = ['TK', 'SD', 'SMP', 'SMA'];
+
+const LEVEL_BADGE_COLOR: Record<EducationLevel, { bg: string; text: string }> = {
+  TK: { bg: '#FEF3C7', text: '#D97706' },
+  SD: { bg: '#DBEAFE', text: '#2563EB' },
+  SMP: { bg: '#E0E7FF', text: '#4338CA' },
+  SMA: { bg: '#FCE7F3', text: '#BE185D' },
+};
+
+export default function ManageClassesView() {
+  const [classes, setClasses] = useState<SchoolClass[]>([]);
+  const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [isMigrating, setIsMigrating] = useState<boolean>(false);
+
+  // Form Tambah Kelas
+  const [isAddModalOpen, setIsAddModalOpen] = useState<boolean>(false);
+  const [newClassName, setNewClassName] = useState('');
+  const [newClassLevel, setNewClassLevel] = useState<EducationLevel>('TK');
+  const [newClassYear, setNewClassYear] = useState('2026/2027');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  useEffect(() => {
+    setIsLoading(true);
+    const unsubscribe = subscribeToClasses((fetchedClasses) => {
+      setClasses(fetchedClasses);
+      setIsLoading(false);
+    });
+    return () => unsubscribe();
+  }, []);
+
+  const handleAddClass = async () => {
+    if (!newClassName.trim()) {
+      Alert.alert('Form Belum Lengkap', 'Nama kelas wajib diisi.');
+      return;
+    }
+
+    setIsSubmitting(true);
+    try {
+      await createClass({
+        name: newClassName.trim(),
+        educationLevel: newClassLevel,
+        academicYear: newClassYear.trim(),
+      });
+      setIsAddModalOpen(false);
+      setNewClassName('');
+      setNewClassLevel('TK');
+      Alert.alert('Sukses', 'Kelas baru berhasil ditambahkan.');
+    } catch (error) {
+      console.error('Error creating class:', error);
+      Alert.alert('Gagal', 'Terjadi kesalahan saat menambahkan kelas.');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  // Migrasi Data Lama (Phase 22) — sekali-jalan, aman dipanggil ulang (idempotent),
+  // tapi tetap minta konfirmasi dulu karena ini operasi tulis massal ke database.
+  const handleRunMigration = () => {
+    Alert.alert(
+      'Migrasi Data Kelas Lama',
+      'Ini akan membaca semua data siswa & guru yang masih pakai nama kelas lama (teks bebas), lalu membuat entri "classes" yang sesuai dan menautkannya. Data lama TIDAK akan dihapus/diubah. Lanjutkan?',
+      [
+        { text: 'Batal', style: 'cancel' },
+        {
+          text: 'Jalankan Migrasi',
+          onPress: async () => {
+            setIsMigrating(true);
+            try {
+              const result = await migrateClassNamesToClasses({
+                defaultEducationLevel: 'TK',
+                defaultAcademicYear: '2026/2027',
+              });
+
+              let message =
+                `Kelas baru dibuat: ${result.classesCreated}\n` +
+                `Kelas sudah ada sebelumnya: ${result.classesAlreadyExisted}\n` +
+                `Siswa ter-update: ${result.studentsUpdated}\n` +
+                `Guru ter-update: ${result.teachersUpdated}`;
+
+              if (result.unmatchedClassNames.length > 0) {
+                message += `\n\n⚠️ Nama kelas guru yang tidak ketemu siswa manapun: ${result.unmatchedClassNames.join(', ')}`;
+              }
+
+              message +=
+                '\n\nPENTING: Cek satu-satu kelas baru di bawah — educationLevel & tahun ajarannya masih nilai default, koreksi manual kalau ada yang beda.';
+
+              Alert.alert('Migrasi Selesai', message);
+            } catch (error) {
+              console.error('Error running migration:', error);
+              Alert.alert('Gagal', 'Terjadi kesalahan saat menjalankan migrasi.');
+            } finally {
+              setIsMigrating(false);
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  return (
+    <View style={styles.tabContentFlex}>
+      <View style={styles.actionHeaderRow}>
+        <Text style={styles.sectionHeader}>Manajemen Kelas</Text>
+        <TouchableOpacity style={styles.primaryActionBtn} onPress={() => setIsAddModalOpen(true)}>
+          <Text style={styles.primaryActionBtnText}>+ Tambah Kelas</Text>
+        </TouchableOpacity>
+      </View>
+
+      {/* Tombol Migrasi — cuma relevan sekali di awal, tapi dibiarkan visible & aman
+          dipencet berkali-kali (idempotent) kalau-kalau ada data lama yang kelewat */}
+      <TouchableOpacity
+        style={[styles.migrationBtn, isMigrating && styles.migrationBtnDisabled]}
+        onPress={handleRunMigration}
+        disabled={isMigrating}
+      >
+        {isMigrating ? (
+          <ActivityIndicator color="#2563EB" size="small" />
+        ) : (
+          <Text style={styles.migrationBtnText}>🔄 Migrasi Data Kelas Lama (dari nama kelas siswa/guru)</Text>
+        )}
+      </TouchableOpacity>
+
+      {isLoading ? (
+        <ActivityIndicator size="small" color="#2563EB" style={{ marginTop: 24 }} />
+      ) : (
+        <ScrollView showsVerticalScrollIndicator={false} style={{ flex: 1, marginTop: 8 }}>
+          {classes.length === 0 ? (
+            <View style={styles.emptyCard}>
+              <Text style={styles.emptyText}>Belum ada kelas terdaftar.</Text>
+              <Text style={styles.emptySubText}>
+                Tambah manual lewat tombol di atas, atau jalankan migrasi kalau sudah ada data siswa lama.
+              </Text>
+            </View>
+          ) : (
+            classes.map((c) => {
+              const badgeColor = LEVEL_BADGE_COLOR[c.educationLevel] || LEVEL_BADGE_COLOR.TK;
+              return (
+                <View key={c.id} style={styles.classCard}>
+                  <View style={styles.cardRowBetween}>
+                    <Text style={styles.className}>{c.name}</Text>
+                    <View style={[styles.levelBadge, { backgroundColor: badgeColor.bg }]}>
+                      <Text style={[styles.levelBadgeText, { color: badgeColor.text }]}>
+                        {c.educationLevel}
+                      </Text>
+                    </View>
+                  </View>
+                  <Text style={styles.classMeta}>Tahun Ajaran: {c.academicYear}</Text>
+                  {c.homeroomTeacherId ? (
+                    <Text style={styles.classMeta}>Wali Kelas: {c.homeroomTeacherId}</Text>
+                  ) : (
+                    <Text style={styles.classMetaMuted}>Wali kelas belum diatur</Text>
+                  )}
+                </View>
+              );
+            })
+          )}
+        </ScrollView>
+      )}
+
+      {/* MODAL: TAMBAH KELAS BARU */}
+      <Modal
+        visible={isAddModalOpen}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => setIsAddModalOpen(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>Tambah Kelas Baru</Text>
+
+            <Text style={styles.inputLabel}>Nama Kelas:</Text>
+            <TextInput
+              style={styles.formInput}
+              placeholder="Contoh: Kelas TK-A"
+              value={newClassName}
+              onChangeText={setNewClassName}
+            />
+
+            <Text style={styles.inputLabel}>Jenjang Pendidikan:</Text>
+            <View style={styles.levelSelectorRow}>
+              {EDUCATION_LEVELS.map((level) => (
+                <TouchableOpacity
+                  key={level}
+                  style={[styles.levelSelectBtn, newClassLevel === level && styles.levelSelectBtnActive]}
+                  onPress={() => setNewClassLevel(level)}
+                >
+                  <Text
+                    style={[
+                      styles.levelSelectBtnText,
+                      newClassLevel === level && styles.levelSelectBtnTextActive,
+                    ]}
+                  >
+                    {level}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+
+            <Text style={styles.inputLabel}>Tahun Ajaran:</Text>
+            <TextInput
+              style={styles.formInput}
+              placeholder="2026/2027"
+              value={newClassYear}
+              onChangeText={setNewClassYear}
+            />
+
+            <View style={styles.modalBtnRow}>
+              <TouchableOpacity
+                style={styles.cancelBtn}
+                onPress={() => setIsAddModalOpen(false)}
+                disabled={isSubmitting}
+              >
+                <Text style={styles.cancelBtnText}>Batal</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.submitBtn} onPress={handleAddClass} disabled={isSubmitting}>
+                {isSubmitting ? (
+                  <ActivityIndicator color="#FFFFFF" size="small" />
+                ) : (
+                  <Text style={styles.submitBtnText}>Simpan Kelas</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  tabContentFlex: {
+    flex: 1,
+    padding: 16,
+  },
+  actionHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  sectionHeader: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#1F2937',
+  },
+  primaryActionBtn: {
+    backgroundColor: '#2563EB',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 6,
+  },
+  primaryActionBtnText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: 'bold',
+  },
+  migrationBtn: {
+    backgroundColor: '#EFF6FF',
+    borderWidth: 1,
+    borderColor: '#BFDBFE',
+    borderRadius: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  migrationBtnDisabled: {
+    opacity: 0.6,
+  },
+  migrationBtnText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#2563EB',
+    textAlign: 'center',
+  },
+  classCard: {
+    backgroundColor: '#FFFFFF',
+    padding: 12,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    marginBottom: 8,
+  },
+  cardRowBetween: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  className: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: '#111827',
+  },
+  classMeta: {
+    fontSize: 12,
+    color: '#6B7280',
+    marginTop: 4,
+  },
+  classMetaMuted: {
+    fontSize: 12,
+    color: '#9CA3AF',
+    fontStyle: 'italic',
+    marginTop: 4,
+  },
+  levelBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 12,
+  },
+  levelBadgeText: {
+    fontSize: 10,
+    fontWeight: 'bold',
+  },
+  emptyCard: {
+    backgroundColor: '#FFFFFF',
+    padding: 24,
+    borderRadius: 10,
+    alignItems: 'center',
+    marginTop: 8,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  emptyText: {
+    fontSize: 13,
+    fontWeight: 'bold',
+    color: '#6B7280',
+    textAlign: 'center',
+  },
+  emptySubText: {
+    color: '#9CA3AF',
+    fontSize: 12,
+    textAlign: 'center',
+    marginTop: 4,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    padding: 20,
+  },
+  modalContent: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    padding: 20,
+    elevation: 5,
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#111827',
+    marginBottom: 12,
+  },
+  inputLabel: {
+    fontSize: 12,
+    fontWeight: 'bold',
+    color: '#374151',
+    marginTop: 8,
+    marginBottom: 4,
+  },
+  formInput: {
+    borderWidth: 1,
+    borderColor: '#D1D5DB',
+    borderRadius: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    fontSize: 13,
+    color: '#111827',
+  },
+  levelSelectorRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginBottom: 8,
+  },
+  levelSelectBtn: {
+    flex: 1,
+    paddingVertical: 8,
+    borderRadius: 6,
+    backgroundColor: '#F3F4F6',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#D1D5DB',
+  },
+  levelSelectBtnActive: {
+    backgroundColor: '#2563EB',
+    borderColor: '#2563EB',
+  },
+  levelSelectBtnText: {
+    fontSize: 11,
+    fontWeight: 'bold',
+    color: '#4B5563',
+  },
+  levelSelectBtnTextActive: {
+    color: '#FFFFFF',
+  },
+  modalBtnRow: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    gap: 8,
+    marginTop: 16,
+  },
+  cancelBtn: {
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 6,
+    backgroundColor: '#F3F4F6',
+  },
+  cancelBtnText: {
+    fontSize: 12,
+    color: '#4B5563',
+    fontWeight: 'bold',
+  },
+  submitBtn: {
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 6,
+    backgroundColor: '#2563EB',
+    alignItems: 'center',
+  },
+  submitBtnText: {
+    fontSize: 12,
+    color: '#FFFFFF',
+    fontWeight: 'bold',
+  },
+});

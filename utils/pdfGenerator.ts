@@ -81,14 +81,31 @@ export const generateStudentReportHTML = (
         }
       }
 
+      // Phase 25: hitung totalColspan di luar blok narrative, karena baris CP
+      // (di bawah) butuh nilai ini juga meskipun enableNarrative mati.
+      const totalColspan = 2 + (hasAnyNumeric ? 1 : 0) + (hasAnyPredicate ? 1 : 0);
+
       let narrativeRow = '';
       if (fields.enableNarrative) {
         const val = record?.narrative;
-        const totalColspan = 2 + (hasAnyNumeric ? 1 : 0) + (hasAnyPredicate ? 1 : 0);
         narrativeRow = `
           <tr style="background-color: #F9FAFB; page-break-inside: avoid;">
             <td colspan="${totalColspan}" style="padding: 10px 12px; font-size: 11px; color: #374151; border-bottom: 1px solid #E5E7EB; line-height: 1.5; word-break: break-word;">
               <strong>Catatan Perkembangan:</strong> ${val ? escapeHtml(val) : '<span style="color: #9CA3AF; font-style: italic;">Belum ada catatan</span>'}
+            </td>
+          </tr>
+        `;
+      }
+
+      // Phase 25 (CP/ATP-aware Reporting): kalau subjek ditautkan ke CP, tampilkan
+      // narasi capaian resmi sesuai Kurikulum Merdeka di bawah baris nilai — terpisah
+      // dari "Catatan Perkembangan" (yang itu catatan personal guru, ini narasi CP resmi).
+      let cpRow = '';
+      if (subject.cpDescription) {
+        cpRow = `
+          <tr style="background-color: #FEFCE8; page-break-inside: avoid;">
+            <td colspan="${totalColspan}" style="padding: 10px 12px; font-size: 11px; color: #713F12; border-bottom: 1px solid #E5E7EB; line-height: 1.5; word-break: break-word;">
+              <strong>Capaian Pembelajaran:</strong> ${escapeHtml(subject.cpDescription)}
             </td>
           </tr>
         `;
@@ -101,6 +118,7 @@ export const generateStudentReportHTML = (
           ${scoreCell}
           ${predicateCell}
         </tr>
+        ${cpRow}
         ${narrativeRow}
       `;
     })

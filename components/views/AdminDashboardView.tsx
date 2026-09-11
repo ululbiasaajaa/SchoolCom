@@ -29,6 +29,8 @@ import {
 import { getStatusBadgeStyle } from '../../utils/badges';
 import { DateFilterType, matchesDateFilter } from '../../utils/dateParser';
 import BroadcastModal from '../modals/BroadcastModal';
+import ManageClassesView from './ManageClassesView';
+import ManageCurriculumView from './ManageCurriculumView';
 import StudentListView from './StudentListView';
 
 interface AdminDashboardViewProps {
@@ -79,8 +81,9 @@ export default function AdminDashboardView({
   adminName = 'Admin Sekolah',
 }: AdminDashboardViewProps) {
   // Tab Switcher Utama Admin
+  // FIX Phase 22: nambah tab 'Classes' buat Manajemen Kelas & trigger migrasi data lama.
   const [activeAdminTab, setActiveAdminTab] = useState<
-    'Report' | 'StudentList' | 'Users' | 'Teachers'
+    'Report' | 'StudentList' | 'Users' | 'Teachers' | 'Classes' | 'Curriculum'
   >('Report');
 
   // Existing Report Filters
@@ -327,6 +330,24 @@ export default function AdminDashboardView({
           </TouchableOpacity>
 
           <TouchableOpacity
+            style={[styles.tabBtn, activeAdminTab === 'Classes' && styles.tabBtnActive]}
+            onPress={() => setActiveAdminTab('Classes')}
+          >
+            <Text style={[styles.tabBtnText, activeAdminTab === 'Classes' && styles.tabBtnTextActive]}>
+              🏫 Kelas
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.tabBtn, activeAdminTab === 'Curriculum' && styles.tabBtnActive]}
+            onPress={() => setActiveAdminTab('Curriculum')}
+          >
+            <Text style={[styles.tabBtnText, activeAdminTab === 'Curriculum' && styles.tabBtnTextActive]}>
+              📖 CP/ATP
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
             style={[styles.tabBtn, activeAdminTab === 'Users' && styles.tabBtnActive]}
             onPress={() => setActiveAdminTab('Users')}
           >
@@ -349,6 +370,12 @@ export default function AdminDashboardView({
       {/* CONDITIONAL RENDERING TAB CONTENT */}
       {activeAdminTab === 'StudentList' ? (
         <StudentListView students={students} onSelectStudent={onSelectStudent} />
+      ) : activeAdminTab === 'Classes' ? (
+        /* TAB BARU: MANAJEMEN KELAS (PHASE 22) */
+        <ManageClassesView />
+      ) : activeAdminTab === 'Curriculum' ? (
+        /* TAB BARU: CAPAIAN PEMBELAJARAN / CP-ATP (PHASE 25) */
+        <ManageCurriculumView />
       ) : activeAdminTab === 'Users' ? (
         /* TAB 3: MANAJEMEN USER */
         <View style={styles.tabContentFlex}>
