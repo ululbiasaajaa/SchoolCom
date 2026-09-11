@@ -13,6 +13,11 @@ import { Student } from '../../types/schoolcom';
 interface StudentListViewProps {
   students: Student[];
   onSelectStudent?: (studentId: string) => void;
+  // FIX: sebelumnya trigger "Tambah Siswa" nempel di kartu metric "Total Siswa (+)"
+  // di tab Laporan — gak intuitif. Sekarang dipindah ke sini, tab yang namanya
+  // emang "Siswa", konsisten sama pola tab Kelas/User/CP-ATP yang punya tombol
+  // "+ Tambah ..." di headernya sendiri.
+  onOpenAddStudent?: () => void;
 }
 
 // 1. Komponen Item Row Terpisah yang Di-memoize untuk Mencegah Re-render Masif Saat Typing Search
@@ -53,6 +58,7 @@ StudentListItem.displayName = 'StudentListItem';
 export default function StudentListView({
   students,
   onSelectStudent,
+  onOpenAddStudent,
 }: StudentListViewProps) {
   const [searchQuery, setSearchQuery] = useState('');
 
@@ -66,6 +72,15 @@ export default function StudentListView({
 
   return (
     <View style={styles.container}>
+      {onOpenAddStudent && (
+        <View style={styles.actionHeaderRow}>
+          <Text style={styles.sectionHeader}>Daftar Siswa</Text>
+          <TouchableOpacity style={styles.primaryActionBtn} onPress={onOpenAddStudent}>
+            <Text style={styles.primaryActionBtnText}>+ Tambah Siswa</Text>
+          </TouchableOpacity>
+        </View>
+      )}
+
       {/* Search Bar Input */}
       <View style={styles.searchContainer}>
         <TextInput
@@ -114,6 +129,28 @@ export default function StudentListView({
 }
 
 const styles = StyleSheet.create({
+  actionHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  sectionHeader: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#1F2937',
+  },
+  primaryActionBtn: {
+    backgroundColor: '#2563EB',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 6,
+  },
+  primaryActionBtnText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: 'bold',
+  },
   container: {
     flex: 1,
     paddingHorizontal: 16,

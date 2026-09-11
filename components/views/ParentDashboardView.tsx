@@ -24,6 +24,7 @@ import {
   subscribeToStudentAttendance,
 } from '../../service/attendanceService';
 // Import Daily Grade Service (Phase 24 - Transparansi Nilai)
+import { subscribeToClasses } from '../../service/classService';
 import {
   calculateSuggestedScore,
   subscribeToDailyGradesByStudent,
@@ -35,10 +36,16 @@ import {
   AssessmentConfig,
   DailyGrade,
   Incident,
+  SchoolClass,
   Student,
   StudentAssessment,
   User,
 } from '../../types/schoolcom';
+import {
+  getComingSoonMessage,
+  isAssessmentModeReady,
+  resolveEducationLevel,
+} from '../../utils/educationLevelHelper';
 import { AssessmentPeriodSummary, groupAssessmentsByPeriod } from '../../utils/historyHelper';
 import {
   DEFAULT_SCHOOL_NAME,
@@ -93,6 +100,15 @@ export default function ParentDashboardView({
   // State khusus Nilai Harian (Phase 24 - Transparansi Nilai, Terikat Periode Aktif)
   const [dailyGrades, setDailyGrades] = useState<DailyGrade[]>([]);
   const [isDailyGradesLoading, setIsDailyGradesLoading] = useState<boolean>(true);
+
+  // State Daftar Kelas (Phase 26 - buat resolve educationLevel siswa aktif)
+  const [classes, setClasses] = useState<SchoolClass[]>([]);
+
+  // Subscribe Daftar Kelas (lepas dari siswa/periode aktif, cukup 1x)
+  useEffect(() => {
+    const unsub = subscribeToClasses((fetchedClasses) => setClasses(fetchedClasses));
+    return () => unsub();
+  }, []);
 
   // 4. State History Rapor & Penilaian (Tahap 11.2)
   const [allHistoryAssessments, setAllHistoryAssessments] = useState<StudentAssessment[]>([]);
@@ -338,6 +354,13 @@ export default function ParentDashboardView({
 
   // Data Siswa Aktif yang Dipilih
   const activeStudent = parentStudents.find((s) => s.id === selectedStudentId);
+
+  // Phase 26: Resolve jenjang siswa aktif. Card-card akademik (Nilai Harian,
+  // Analisis Perkembangan, Catatan, Riwayat Rapor) digate oleh ini — supaya ortu
+  // siswa jenjang SD/SMP/SMA gak melihat struktur data TK yang gak relevan buat
+  // anaknya (misal label "Aspek Perkembangan" padahal anaknya udah SD).
+  const activeEducationLevel = resolveEducationLevel(activeStudent?.classId, classes);
+  const isAssessmentReady = isAssessmentModeReady(activeEducationLevel);
 
   // Helper Renderer Badge Trend Delta (Tahap 12.2)
   const renderTrendBadge = (direction: TrendDirection, delta: number | null) => {
@@ -816,8 +839,20 @@ export default function ParentDashboardView({
             )}
           </View>
 
-          {/* CARD BARU: NILAI HARIAN / TRANSPARANSI NILAI (PHASE 24) */}
-          <View style={styles.card}>
+          {/* PHASE 26: Gate seluruh card akademik (Nilai Harian, Analisis, Catatan,
+              Riwayat Rapor) berdasarkan jenjang siswa aktif. Kalau jenjangnya belum
+              didukung, tampilkan SATU pesan "segera hadir" gabungan, bukan 4 card
+              placeholder terpisah yang berisik. */}
+          {!isAssessmentReady ? (
+            <View style={styles.card}>
+              <Text style={styles.comingSoonIcon}>🚧</Text>
+              <Text style={styles.comingSoonTitle}>Segera Hadir</Text>
+              <Text style={styles.comingSoonText}>{getComingSoonMessage(activeEducationLevel)}</Text>
+            </View>
+          ) : (
+            <>
+              {/* CARD BARU: NILAI HARIAN / TRANSPARANSI NILAI (PHASE 24) */}
+              <View style={styles.card}>
             <View style={styles.attendanceCardHeaderRow}>
               <Text style={styles.cardHeader}>📈 Nilai Harian</Text>
               {dailyGrades.length > 0 && (
@@ -984,6 +1019,8 @@ export default function ParentDashboardView({
               <Text style={styles.emptyText}>Belum ada riwayat penilaian.</Text>
             )}
           </View>
+            </>
+          )}
 
           {/* CARD 7: EXPORT CENTER TERPADU (SUB-PHASE 16.4) */}
           <View style={[styles.card, styles.reportCard]}>
@@ -993,18 +1030,20 @@ export default function ParentDashboardView({
             </Text>
 
             <View style={styles.exportActionList}>
-              {/* Button 1: PDF Rapor Akademik */}
-              <TouchableOpacity
-                style={[styles.downloadButton, isExportingAcademic && styles.downloadButtonDisabled]}
-                onPress={handleDownloadPDF}
-                disabled={isExportingAcademic}
-              >
-                {isExportingAcademic ? (
-                  <ActivityIndicator size="small" color="#FFFFFF" />
-                ) : (
-                  <Text style={styles.downloadButtonText}>📄 Unduh Rapor Hasil Belajar PDF</Text>
-                )}
-              </TouchableOpacity>
+              {/* Button 1: PDF Rapor Akademik (Phase 26: digate, karena isinya nilai per mapel/aspek yang formatnya beda per jenjang) */}
+              {isAssessmentReady && (
+                <TouchableOpacity
+                  style={[styles.downloadButton, isExportingAcademic && styles.downloadButtonDisabled]}
+                  onPress={handleDownloadPDF}
+                  disabled={isExportingAcademic}
+                >
+                  {isExportingAcademic ? (
+                    <ActivityIndicator size="small" color="#FFFFFF" />
+                  ) : (
+                    <Text style={styles.downloadButtonText}>📄 Unduh Rapor Hasil Belajar PDF</Text>
+                  )}
+                </TouchableOpacity>
+              )}
 
               {/* Button 2: PDF Rekap Presensi */}
               <TouchableOpacity
@@ -1230,6 +1269,24 @@ export default function ParentDashboardView({
 }
 
 const styles = StyleSheet.create({
+  comingSoonIcon: {
+    fontSize: 28,
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  comingSoonTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#92400E',
+    marginBottom: 6,
+    textAlign: 'center',
+  },
+  comingSoonText: {
+    fontSize: 12,
+    color: '#78350F',
+    textAlign: 'center',
+    lineHeight: 18,
+  },
   container: {
     flex: 1,
     backgroundColor: '#F5F7FA',

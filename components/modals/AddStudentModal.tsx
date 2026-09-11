@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -9,22 +9,45 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import { subscribeToClasses } from '../../service/classService';
 import { addStudent } from '../../service/studentService';
+import { SchoolClass } from '../../types/schoolcom';
 
 interface AddStudentModalProps {
   visible: boolean;
   onClose: () => void;
 }
 
-const AVAILABLE_CLASSES = ['Kelas TK-A', 'Kelas TK-B', 'Kelas Playgroup'];
-
 const AddStudentModal: React.FC<AddStudentModalProps> = ({ visible, onClose }) => {
   const [name, setName] = useState('');
-  const [className, setClassName] = useState('Kelas TK-A');
+  // FIX BUG: sebelumnya className dari list hardcode (`AVAILABLE_CLASSES`) yang gak
+  // nyambung sama sekali ke collection `classes` dari Phase 22 — siswa baru yang
+  // ditambah lewat modal ini gak pernah dapet `classId`, jadi gak ke-cover sama
+  // fitur yang butuh classId (nilai harian, gating jenjang, dst). Sekarang pilihan
+  // kelasnya diambil langsung dari `classes` collection yang sebenarnya.
+  const [classes, setClasses] = useState<SchoolClass[]>([]);
+  const [isClassesLoading, setIsClassesLoading] = useState(true);
+  const [selectedClassId, setSelectedClassId] = useState<string | null>(null);
   const [gender, setGender] = useState<'M' | 'F'>('M');
   const [parentName, setParentName] = useState('');
   const [parentPhone, setParentPhone] = useState('');
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (!visible) return;
+    setIsClassesLoading(true);
+    const unsub = subscribeToClasses((fetchedClasses) => {
+      setClasses(fetchedClasses);
+      setIsClassesLoading(false);
+      // Auto-select kelas pertama kalau belum ada pilihan / pilihan lama udah gak ada
+      setSelectedClassId((prev) => {
+        const stillValid = prev && fetchedClasses.some((c) => c.id === prev);
+        if (stillValid) return prev;
+        return fetchedClasses.length > 0 ? fetchedClasses[0].id : null;
+      });
+    });
+    return () => unsub();
+  }, [visible]);
 
   const handleSubmit = async () => {
     if (!name.trim()) {
@@ -32,11 +55,21 @@ const AddStudentModal: React.FC<AddStudentModalProps> = ({ visible, onClose }) =
       return;
     }
 
+    const selectedClass = classes.find((c) => c.id === selectedClassId);
+    if (!selectedClass) {
+      Alert.alert(
+        'Kelas Belum Dipilih',
+        'Pilih kelas dulu. Kalau daftar kelas kosong, tambah kelas dulu lewat tab "Kelas".'
+      );
+      return;
+    }
+
     setLoading(true);
     try {
       await addStudent({
         name: name.trim(),
-        className,
+        className: selectedClass.name,
+        classId: selectedClass.id,
         avatar: gender === 'F' ? '👧' : '👦',
         gender,
         dob: '',
@@ -79,19 +112,27 @@ const AddStudentModal: React.FC<AddStudentModalProps> = ({ visible, onClose }) =
           />
 
           <Text style={styles.label}>Pilih Kelas</Text>
-          <View style={styles.classRow}>
-            {AVAILABLE_CLASSES.map((cls) => (
-              <TouchableOpacity
-                key={cls}
-                style={[styles.classBtn, className === cls && styles.classActive]}
-                onPress={() => setClassName(cls)}
-              >
-                <Text style={className === cls ? styles.textActive : styles.textInactive}>
-                  {cls}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </View>
+          {isClassesLoading ? (
+            <ActivityIndicator size="small" color="#2563EB" style={{ marginVertical: 8 }} />
+          ) : classes.length === 0 ? (
+            <Text style={styles.emptyClassText}>
+              Belum ada kelas terdaftar. Tambah kelas dulu lewat tab "Kelas" sebelum menambah siswa.
+            </Text>
+          ) : (
+            <View style={styles.classRow}>
+              {classes.map((cls) => (
+                <TouchableOpacity
+                  key={cls.id}
+                  style={[styles.classBtn, selectedClassId === cls.id && styles.classActive]}
+                  onPress={() => setSelectedClassId(cls.id)}
+                >
+                  <Text style={selectedClassId === cls.id ? styles.textActive : styles.textInactive}>
+                    {cls.name}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          )}
 
           <Text style={styles.label}>Jenis Kelamin</Text>
           <View style={styles.genderRow}>
@@ -177,13 +218,19 @@ const styles = StyleSheet.create({
   },
   classRow: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     gap: 6,
     marginVertical: 4,
   },
+  emptyClassText: {
+    fontSize: 12,
+    color: '#DC2626',
+    fontStyle: 'italic',
+    marginVertical: 6,
+  },
   classBtn: {
-    flex: 1,
     paddingVertical: 8,
-    paddingHorizontal: 4,
+    paddingHorizontal: 10,
     borderWidth: 1,
     borderColor: '#CBD5E1',
     borderRadius: 8,

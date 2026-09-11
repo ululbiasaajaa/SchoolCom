@@ -22,7 +22,12 @@ import {
   AssessmentPredicateConfig,
   AssessmentSubjectConfig,
   CurriculumFramework,
+  EducationLevel,
 } from '../../types/schoolcom';
+import {
+  getComingSoonMessage,
+  isAssessmentModeReady,
+} from '../../utils/educationLevelHelper';
 
 interface AdminAssessmentConfigModalProps {
   visible: boolean;
@@ -31,6 +36,10 @@ interface AdminAssessmentConfigModalProps {
 
 const ACADEMIC_YEARS = ['2025/2026', '2026/2027'];
 const TERMS = ['Semester 1', 'Semester 2'];
+// Phase 26: daftar jenjang buat selector lensa admin. INI TIDAK MENGUBAH data
+// config yang tersimpan (assessmentConfigs masih belum di-scope per jenjang) —
+// murni guard UI biar admin gak coba konfigurasiin jenjang yang modulnya belum ada.
+const EDUCATION_LEVELS: EducationLevel[] = ['TK', 'SD', 'SMP', 'SMA'];
 
 export default function AdminAssessmentConfigModal({
   visible,
@@ -39,6 +48,10 @@ export default function AdminAssessmentConfigModal({
   // State Periode Aktif
   const [selectedAcademicYear, setSelectedAcademicYear] = useState<string>('2026/2027');
   const [selectedTerm, setSelectedTerm] = useState<string>('Semester 1');
+  // Phase 26: lensa jenjang, default TK karena itu satu-satunya yang datanya nyata
+  // sekarang. Ganti-ganti chip ini TIDAK memuat/menyimpan config apapun — cuma
+  // nunjukkin editor mata pelajaran (TK) atau pesan "segera hadir" (selain TK).
+  const [selectedEducationLevel, setSelectedEducationLevel] = useState<EducationLevel>('TK');
 
   // State Data Config
   const [isLoading, setIsLoading] = useState<boolean>(true);
@@ -332,7 +345,33 @@ export default function AdminAssessmentConfigModal({
             </ScrollView>
           </View>
 
-          {isLoading ? (
+          {/* Selector Jenjang (Phase 26 - lensa UI, gak nyimpan/muat data apapun) */}
+          <View style={styles.periodeContainer}>
+            <Text style={styles.sectionLabel}>Jenjang:</Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chipRow}>
+              {EDUCATION_LEVELS.map((level) => (
+                <TouchableOpacity
+                  key={level}
+                  style={[styles.chip, selectedEducationLevel === level && styles.chipActive]}
+                  onPress={() => setSelectedEducationLevel(level)}
+                >
+                  <Text
+                    style={[styles.chipText, selectedEducationLevel === level && styles.chipTextActive]}
+                  >
+                    {level}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          </View>
+
+          {!isAssessmentModeReady(selectedEducationLevel) ? (
+            <View style={styles.comingSoonCard}>
+              <Text style={styles.comingSoonIcon}>🚧</Text>
+              <Text style={styles.comingSoonTitle}>Segera Hadir</Text>
+              <Text style={styles.comingSoonText}>{getComingSoonMessage(selectedEducationLevel)}</Text>
+            </View>
+          ) : isLoading ? (
             <View style={styles.loadingContainer}>
               <ActivityIndicator size="large" color="#2563EB" />
               <Text style={styles.loadingText}>Memuat data konfigurasi...</Text>
@@ -557,6 +596,31 @@ export default function AdminAssessmentConfigModal({
 }
 
 const styles = StyleSheet.create({
+  comingSoonCard: {
+    backgroundColor: '#FFFBEB',
+    borderWidth: 1,
+    borderColor: '#FDE68A',
+    borderRadius: 12,
+    padding: 24,
+    alignItems: 'center',
+    marginTop: 8,
+  },
+  comingSoonIcon: {
+    fontSize: 28,
+    marginBottom: 8,
+  },
+  comingSoonTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#92400E',
+    marginBottom: 6,
+  },
+  comingSoonText: {
+    fontSize: 12,
+    color: '#78350F',
+    textAlign: 'center',
+    lineHeight: 18,
+  },
   cpLinkedBadge: {
     backgroundColor: '#EFF6FF',
     borderWidth: 1,

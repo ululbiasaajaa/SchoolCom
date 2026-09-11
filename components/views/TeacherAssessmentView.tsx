@@ -15,13 +15,20 @@ import {
   subscribeToAssessmentConfig,
   subscribeToAssessments,
 } from '../../service/assessmentService';
+import { subscribeToClasses } from '../../service/classService';
 import { notifyParentOnAssessment } from '../../service/pushNotificationService';
 import {
   AssessmentConfig,
+  SchoolClass,
   Student,
   StudentAssessment,
 } from '../../types/schoolcom';
 import { exportAssessmentsToCSV } from '../../utils/csvExporter';
+import {
+  getComingSoonMessage,
+  isAssessmentModeReady,
+  resolveEducationLevel,
+} from '../../utils/educationLevelHelper';
 import { exportStudentReportPDF } from '../../utils/pdfGenerator';
 import DailyGradeModal from '../modals/DailyGradeModal';
 
@@ -60,6 +67,15 @@ export default function TeacherAssessmentView({
 
   // State Modal Nilai Harian (Phase 23)
   const [isDailyGradeModalOpen, setIsDailyGradeModalOpen] = useState<boolean>(false);
+
+  // State Daftar Kelas (Phase 26 - buat resolve educationLevel siswa aktif)
+  const [classes, setClasses] = useState<SchoolClass[]>([]);
+
+  // Subscribe Daftar Kelas
+  useEffect(() => {
+    const unsub = subscribeToClasses((fetchedClasses) => setClasses(fetchedClasses));
+    return () => unsub();
+  }, []);
 
   // 1. Subscribe Realtime Config berdasarkan Periode Aktif
   useEffect(() => {
@@ -110,6 +126,12 @@ export default function TeacherAssessmentView({
   const activeSubject = config?.subjects.find((s) => s.id === selectedSubjectId);
   // Siswa yang sedang dipilih
   const activeStudent = students.find((s) => s.id === selectedStudentId);
+
+  // Phase 26: Resolve jenjang siswa aktif & cek apakah modul assessment jenjang
+  // itu udah siap. Fallback default 'TK' kalau classId belum ada (lihat komentar
+  // di educationLevelHelper.ts) supaya alur TK yang udah lolos testing gak keganggu.
+  const activeEducationLevel = resolveEducationLevel(activeStudent?.classId, classes);
+  const isAssessmentReady = isAssessmentModeReady(activeEducationLevel);
 
   // Assessment yang tersimpan untuk Siswa + Subjek + Periode aktif
   const currentSavedAssessment = existingAssessments.find(
@@ -416,8 +438,16 @@ export default function TeacherAssessmentView({
             </ScrollView>
           </View>
 
-          {/* Form Penilaian Dinamis */}
-          {activeSubject && activeStudent && (
+          {/* Form Penilaian Dinamis (Phase 26: digate oleh jenjang kelas siswa aktif) */}
+          {activeSubject && activeStudent && !isAssessmentReady && (
+            <View style={styles.comingSoonCard}>
+              <Text style={styles.comingSoonIcon}>🚧</Text>
+              <Text style={styles.comingSoonTitle}>Segera Hadir</Text>
+              <Text style={styles.comingSoonText}>{getComingSoonMessage(activeEducationLevel)}</Text>
+            </View>
+          )}
+
+          {activeSubject && activeStudent && isAssessmentReady && (
             <View style={styles.formCard}>
               <View style={styles.formHeaderRow}>
                 <View style={{ flex: 1 }}>
@@ -574,6 +604,32 @@ export default function TeacherAssessmentView({
 }
 
 const styles = StyleSheet.create({
+  comingSoonCard: {
+    backgroundColor: '#FFFBEB',
+    borderWidth: 1,
+    borderColor: '#FDE68A',
+    borderRadius: 12,
+    padding: 24,
+    alignItems: 'center',
+    marginTop: 4,
+    marginBottom: 24,
+  },
+  comingSoonIcon: {
+    fontSize: 28,
+    marginBottom: 8,
+  },
+  comingSoonTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#92400E',
+    marginBottom: 6,
+  },
+  comingSoonText: {
+    fontSize: 12,
+    color: '#78350F',
+    textAlign: 'center',
+    lineHeight: 18,
+  },
   container: {
     flex: 1,
     backgroundColor: '#F3F4F6',

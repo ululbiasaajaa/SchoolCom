@@ -132,6 +132,10 @@ export default function HomeScreen() {
           role: fetchedRole,
           studentIds: data.studentIds || [],
           classes: data.classes || [],
+          // FIX BUG: field ini sebelumnya gak ikut di-mapping, jadi classIds hasil
+          // migrateClassNamesToClasses() (Phase 22) selalu ke-drop dari currentUser
+          // di state app, walau datanya bener tersimpan di Firestore.
+          classIds: data.classIds || [],
         };
 
         setCurrentUser(activeUser);

@@ -369,7 +369,7 @@ export default function AdminDashboardView({
 
       {/* CONDITIONAL RENDERING TAB CONTENT */}
       {activeAdminTab === 'StudentList' ? (
-        <StudentListView students={students} onSelectStudent={onSelectStudent} />
+        <StudentListView students={students} onSelectStudent={onSelectStudent} onOpenAddStudent={onOpenAddStudent} />
       ) : activeAdminTab === 'Classes' ? (
         /* TAB BARU: MANAJEMEN KELAS (PHASE 22) */
         <ManageClassesView />
@@ -531,14 +531,10 @@ export default function AdminDashboardView({
 
           {/* Ringkasan Metrics */}
           <View style={styles.metricsGrid}>
-            <TouchableOpacity
-              style={[styles.metricCard, styles.interactiveMetricCard]}
-              onPress={onOpenAddStudent}
-              activeOpacity={0.7}
-            >
+            <View style={styles.metricCard}>
               <Text style={[styles.metricVal, { color: '#2563EB' }]}>{students.length}</Text>
-              <Text style={styles.metricLbl}>Total Siswa (+)</Text>
-            </TouchableOpacity>
+              <Text style={styles.metricLbl}>Total Siswa</Text>
+            </View>
 
             <View style={styles.metricCard}>
               <Text style={styles.metricVal}>{metrics.totalObs}</Text>
