@@ -2,6 +2,7 @@ import {
     addDoc,
     collection,
     deleteDoc,
+    deleteField,
     doc,
     onSnapshot,
     orderBy,
@@ -101,6 +102,30 @@ export const updateClass = async (
     });
   } catch (error: unknown) {
     console.error('Error updating class:', error);
+    throw error;
+  }
+};
+
+/**
+ * Set atau kosongkan Wali Kelas untuk 1 kelas.
+ *
+ * CATATAN: Firestore TIDAK menerima `undefined` sebagai value field (beda dengan
+ * `null`) — kalau dikirim langsung lewat `updateClass({ homeroomTeacherId: undefined })`,
+ * `updateDoc` bakal throw error. Fungsi ini pakai `deleteField()` sentinel khusus
+ * dari Firestore SDK buat beneran menghapus field-nya dari dokumen saat dikosongkan.
+ */
+export const setHomeroomTeacher = async (
+  classId: string,
+  teacherUid: string | null
+): Promise<void> => {
+  try {
+    const classRef = doc(db, CLASSES_COLLECTION, classId);
+    await updateDoc(classRef, {
+      homeroomTeacherId: teacherUid === null ? deleteField() : teacherUid,
+      updatedAt: serverTimestamp(),
+    });
+  } catch (error: unknown) {
+    console.error('Error setting homeroom teacher:', error);
     throw error;
   }
 };

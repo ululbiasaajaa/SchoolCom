@@ -11,9 +11,10 @@ import {
     View,
 } from 'react-native';
 
-import { createClass, subscribeToClasses } from '../../service/classService';
+import { subscribeToAllUsers } from '../../service/adminService';
+import { createClass, setHomeroomTeacher, subscribeToClasses } from '../../service/classService';
 import { migrateClassNamesToClasses } from '../../service/migrationService';
-import { EducationLevel, SchoolClass } from '../../types/schoolcom';
+import { EducationLevel, SchoolClass, User } from '../../types/schoolcom';
 
 const EDUCATION_LEVELS: EducationLevel[] = ['TK', 'SD', 'SMP', 'SMA'];
 
@@ -28,6 +29,13 @@ export default function ManageClassesView() {
   const [classes, setClasses] = useState<SchoolClass[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [isMigrating, setIsMigrating] = useState<boolean>(false);
+
+  // Daftar Guru (buat picker Wali Kelas)
+  const [teachers, setTeachers] = useState<User[]>([]);
+
+  // Modal Atur Wali Kelas
+  const [classForHomeroomEdit, setClassForHomeroomEdit] = useState<SchoolClass | null>(null);
+  const [isAssigningHomeroom, setIsAssigningHomeroom] = useState(false);
 
   // Form Tambah Kelas
   const [isAddModalOpen, setIsAddModalOpen] = useState<boolean>(false);
@@ -44,6 +52,37 @@ export default function ManageClassesView() {
     });
     return () => unsubscribe();
   }, []);
+
+  // Subscribe Daftar Guru buat Picker Wali Kelas
+  useEffect(() => {
+    const unsubscribe = subscribeToAllUsers((fetchedUsers) => {
+      setTeachers(fetchedUsers.filter((u) => u.role === 'teacher'));
+    });
+    return () => unsubscribe();
+  }, []);
+
+  // Handler Assign/Ganti Wali Kelas
+  const handleAssignHomeroom = async (teacherUid: string | null) => {
+    if (!classForHomeroomEdit) return;
+
+    setIsAssigningHomeroom(true);
+    try {
+      await setHomeroomTeacher(classForHomeroomEdit.id, teacherUid);
+      setClassForHomeroomEdit(null);
+    } catch (error) {
+      console.error('Error assigning homeroom teacher:', error);
+      Alert.alert('Gagal', 'Terjadi kesalahan saat mengatur wali kelas.');
+    } finally {
+      setIsAssigningHomeroom(false);
+    }
+  };
+
+  // Helper cari nama guru dari uid, buat ditampilkan di kartu kelas
+  const getTeacherName = (uid?: string): string | null => {
+    if (!uid) return null;
+    const found = teachers.find((t) => (t.uid || (t as any).id) === uid);
+    return found ? found.name : uid; // Fallback nampilin UID mentah kalau gurunya udah gak ada di list
+  };
 
   const handleAddClass = async () => {
     if (!newClassName.trim()) {
@@ -163,10 +202,16 @@ export default function ManageClassesView() {
                   </View>
                   <Text style={styles.classMeta}>Tahun Ajaran: {c.academicYear}</Text>
                   {c.homeroomTeacherId ? (
-                    <Text style={styles.classMeta}>Wali Kelas: {c.homeroomTeacherId}</Text>
+                    <Text style={styles.classMeta}>Wali Kelas: {getTeacherName(c.homeroomTeacherId)}</Text>
                   ) : (
                     <Text style={styles.classMetaMuted}>Wali kelas belum diatur</Text>
                   )}
+                  <TouchableOpacity
+                    style={styles.assignHomeroomBtn}
+                    onPress={() => setClassForHomeroomEdit(c)}
+                  >
+                    <Text style={styles.assignHomeroomBtnText}>✏️ Atur Wali Kelas</Text>
+                  </TouchableOpacity>
                 </View>
               );
             })
@@ -240,11 +285,113 @@ export default function ManageClassesView() {
           </View>
         </View>
       </Modal>
+
+      {/* MODAL: ATUR WALI KELAS */}
+      <Modal
+        visible={classForHomeroomEdit !== null}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => setClassForHomeroomEdit(null)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>Atur Wali Kelas</Text>
+            {classForHomeroomEdit && (
+              <Text style={styles.modalSubtitle}>{classForHomeroomEdit.name}</Text>
+            )}
+
+            <ScrollView showsVerticalScrollIndicator={false} style={{ maxHeight: 320, marginTop: 8 }}>
+              {isAssigningHomeroom ? (
+                <ActivityIndicator size="small" color="#2563EB" style={{ marginVertical: 16 }} />
+              ) : teachers.length === 0 ? (
+                <Text style={styles.emptyText}>
+                  Belum ada guru terdaftar. Tambah guru dulu di tab "User".
+                </Text>
+              ) : (
+                <>
+                  <TouchableOpacity
+                    style={styles.teacherOptionRow}
+                    onPress={() => handleAssignHomeroom(null)}
+                  >
+                    <Text style={styles.teacherOptionText}>— Kosongkan Wali Kelas —</Text>
+                  </TouchableOpacity>
+                  {teachers.map((t) => {
+                    const uid = t.uid || (t as any).id;
+                    const isCurrent = classForHomeroomEdit?.homeroomTeacherId === uid;
+                    return (
+                      <TouchableOpacity
+                        key={uid}
+                        style={[styles.teacherOptionRow, isCurrent && styles.teacherOptionRowActive]}
+                        onPress={() => handleAssignHomeroom(uid)}
+                      >
+                        <Text
+                          style={[
+                            styles.teacherOptionText,
+                            isCurrent && styles.teacherOptionTextActive,
+                          ]}
+                        >
+                          {isCurrent ? '✓ ' : ''}
+                          {t.name} ({t.email})
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </>
+              )}
+            </ScrollView>
+
+            <TouchableOpacity
+              style={[styles.cancelBtn, { marginTop: 16 }]}
+              onPress={() => setClassForHomeroomEdit(null)}
+            >
+              <Text style={styles.cancelBtnText}>Tutup</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
+  assignHomeroomBtn: {
+    marginTop: 8,
+    alignSelf: 'flex-start',
+    backgroundColor: '#EFF6FF',
+    borderWidth: 1,
+    borderColor: '#BFDBFE',
+    borderRadius: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+  },
+  assignHomeroomBtnText: {
+    fontSize: 11,
+    color: '#2563EB',
+    fontWeight: '600',
+  },
+  modalSubtitle: {
+    fontSize: 12,
+    color: '#6B7280',
+    marginBottom: 4,
+  },
+  teacherOptionRow: {
+    paddingVertical: 10,
+    paddingHorizontal: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F3F4F6',
+  },
+  teacherOptionRowActive: {
+    backgroundColor: '#EFF6FF',
+    borderRadius: 6,
+  },
+  teacherOptionText: {
+    fontSize: 13,
+    color: '#374151',
+  },
+  teacherOptionTextActive: {
+    color: '#2563EB',
+    fontWeight: '700',
+  },
   tabContentFlex: {
     flex: 1,
     padding: 16,

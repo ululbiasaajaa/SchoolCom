@@ -138,6 +138,12 @@ export const subscribeToStudents = (callback: (students: Student[]) => void) => 
           id: docSnap.id,
           name: typeof data.name === 'string' ? data.name : '',
           className: typeof data.className === 'string' ? data.className : '',
+          // FIX BUG: field ini sebelumnya gak di-list di sini, jadi classId hasil
+          // migrateClassNamesToClasses() (Phase 22) selalu ke-drop diam-diam walau
+          // datanya udah bener tersimpan di Firestore. Akibatnya fitur yang butuh
+          // classId (misal tombol "Nilai Harian" di TeacherAssessmentView) selalu
+          // nganggap siswa belum termigrasi walau sebenarnya sudah.
+          classId: typeof data.classId === 'string' ? data.classId : undefined,
           avatar: typeof data.avatar === 'string' ? data.avatar : '👦',
           gender: inferredGender, // Fix: Gender ter-mapping dengan aman!
           dob: typeof data.dob === 'string' ? data.dob : '',
