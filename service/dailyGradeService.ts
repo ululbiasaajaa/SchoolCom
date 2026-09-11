@@ -1,13 +1,14 @@
 import {
-    addDoc,
-    collection,
-    deleteDoc,
-    doc,
-    onSnapshot,
-    query,
-    serverTimestamp,
-    updateDoc,
-    where,
+  addDoc,
+  collection,
+  deleteDoc,
+  doc,
+  onSnapshot,
+  query,
+  serverTimestamp,
+  updateDoc,
+  where,
+  writeBatch,
 } from 'firebase/firestore';
 import { db } from '../config/firebase';
 import { DailyGrade } from '../types/schoolcom';
@@ -182,6 +183,28 @@ export const deleteDailyGrade = async (gradeId: string): Promise<void> => {
     await deleteDoc(ref);
   } catch (error: unknown) {
     console.error('Error deleting daily grade:', error);
+    throw error;
+  }
+};
+
+/**
+ * EVT-06: Tandai sekumpulan entri nilai harian sebagai "sudah dinotifikasi".
+ * Dipanggil SETELAH notifyParentOnDailyGrades berhasil terkirim — guru me-review
+ * beberapa entri dulu (bisa lintas tanggal/jenis), baru kirim notifikasi manual
+ * sekali klik, ini yang nyatet biar entri yang sama gak ke-notif dobel di sesi
+ * berikutnya.
+ */
+export const markDailyGradesAsNotified = async (gradeIds: string[]): Promise<void> => {
+  if (gradeIds.length === 0) return;
+  try {
+    const batch = writeBatch(db);
+    const now = new Date().toISOString();
+    gradeIds.forEach((id) => {
+      batch.update(doc(db, DAILY_GRADES_COLLECTION, id), { notifiedAt: now });
+    });
+    await batch.commit();
+  } catch (error: unknown) {
+    console.error('Error marking daily grades as notified:', error);
     throw error;
   }
 };

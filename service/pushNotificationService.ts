@@ -249,6 +249,47 @@ export async function notifyParentOnAssessment(
 }
 
 /**
+ * EVT-06: Mengirim Notifikasi Nilai Harian ke Parent — DIPICU MANUAL oleh guru,
+ * BUKAN otomatis tiap 1 entri nilai harian disimpan.
+ *
+ * KENAPA MANUAL (bukan kayak EVT-04 assessment yang otomatis)?
+ * Nilai rapor diisi ~1x per mapel per semester, jadi notif otomatis per-simpan itu
+ * jarang & berharga. Nilai harian bisa diisi berkali-kali sehari untuk banyak
+ * siswa sekaligus (tiap kuis/tugas) — kalau tiap entri langsung push notification,
+ * ortu bisa kebanjiran notif dan malah mematikannya. Jadi alurnya: guru input
+ * beberapa nilai dulu, REVIEW, baru sekali klik "Kirim Notifikasi" buat ngirim
+ * satu notifikasi ringkas yang nyebut jumlah entri & nama mapel.
+ */
+export async function notifyParentOnDailyGrades(
+  studentId: string,
+  studentName: string,
+  subjectName: string,
+  entryCount: number
+): Promise<void> {
+  try {
+    const parentTokens = await getParentPushTokens(studentId);
+    if (parentTokens.length === 0) {
+      console.warn(`[PushNotificationService] Tidak ada Push Token terdaftar/terbaca untuk Parent dari studentId: ${studentId}`);
+      return;
+    }
+
+    const entryLabel = entryCount === 1 ? '1 nilai harian baru' : `${entryCount} nilai harian baru`;
+
+    const messages: PushMessagePayload[] = parentTokens.map((token) => ({
+      to: token,
+      sound: 'default',
+      title: '📈 Nilai Harian Diperbarui',
+      body: `${entryLabel} untuk ${studentName} pada mapel ${subjectName} telah dicatat oleh guru.`,
+      data: { studentId, type: 'daily_grade' },
+    }));
+
+    await sendExpoPushNotifications(messages);
+  } catch (error: unknown) {
+    console.error('[PushNotificationService] Error pada notifyParentOnDailyGrades:', error);
+  }
+}
+
+/**
  * EVT-05 (BROADCAST): Mengirim Pengumuman Massal ke Seluruh Pengguna / Parent / Teacher.
  * WAJIB dipanggil dari akun ADMIN saja (lihat catatan di getBroadcastPushTokens).
  *

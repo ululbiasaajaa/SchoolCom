@@ -237,4 +237,9 @@ export interface DailyGrade {
   notes?: string;
   teacherName: string;
   createdAt: string;
+  // EVT-06: kapan entri ini terakhir diikutkan dalam notifikasi ke ortu.
+  // undefined = belum pernah dinotifikasi sama sekali. Guru me-review dulu
+  // beberapa entri, baru kirim notifikasi manual sekali klik (bukan per-entri),
+  // supaya ortu gak kebanjiran push notification tiap kali 1 nilai diinput.
+  notifiedAt?: string;
 }

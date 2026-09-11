@@ -1,7 +1,7 @@
 import Constants from 'expo-constants';
 import * as Device from 'expo-device';
 import * as Notifications from 'expo-notifications';
-import { deleteDoc, doc, setDoc } from 'firebase/firestore';
+import { deleteDoc, deleteField, doc, setDoc } from 'firebase/firestore';
 import { Platform } from 'react-native';
 import { db } from '../config/firebase';
 import { User } from '../types/schoolcom';
@@ -90,21 +90,29 @@ export async function registerForPushNotificationsAsync(
 
     // 5. Simpan/Update Token ke Firestore Collection pushTokens/{uid}
     const tokenDocRef = doc(db, 'pushTokens', user.uid);
-    const tokenPayload: PushTokenDocument = {
+    const tokenPayload: Record<string, unknown> = {
       pushToken: token,
       role: user.role,
       platform: Platform.OS,
       updatedAt: new Date().toISOString(),
     };
 
-    // Sertakan metadata scoping untuk optimasi Security Rules O(1)
-    if (user.role === 'parent' && user.studentIds && user.studentIds.length > 0) {
-      tokenPayload.studentIds = user.studentIds;
+    // FIX BUG: sebelumnya field studentIds/assignedClasses cuma DIMASUKKIN kalau
+    // array-nya gak kosong — kalau kosong, field itu SAMA SEKALI gak disentuh di
+    // payload. Karena setDoc pakai { merge: true }, itu artinya nilai LAMA di
+    // Firestore tetap nyangkut walau parent/guru itu baru aja di-unlink/dikosongkan
+    // relasinya. Akibatnya rules `isTeacherOfParent`/`isParentOfTeacherClass` bisa
+    // masih menganggap relasi itu ada berdasarkan data basi, membocorkan push token
+    // ke pihak yang harusnya udah gak relevan. Sekarang eksplisit deleteField()
+    // kalau arraynya kosong, biar field-nya beneran kehapus dari dokumen.
+    if (user.role === 'parent') {
+      tokenPayload.studentIds =
+        user.studentIds && user.studentIds.length > 0 ? user.studentIds : deleteField();
     }
 
-    // Menggunakan field user.classes sesuai interface User di types/schoolcom.ts
-    if (user.role === 'teacher' && user.classes && user.classes.length > 0) {
-      tokenPayload.assignedClasses = user.classes;
+    if (user.role === 'teacher') {
+      tokenPayload.assignedClasses =
+        user.classes && user.classes.length > 0 ? user.classes : deleteField();
     }
 
     await setDoc(tokenDocRef, tokenPayload, { merge: true });

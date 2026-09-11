@@ -1,22 +1,24 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
-    ActivityIndicator,
-    Alert,
-    Modal,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
+  ActivityIndicator,
+  Alert,
+  Modal,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from 'react-native';
 
 import {
-    addDailyGrade,
-    calculateSuggestedScore,
-    deleteDailyGrade,
-    subscribeToDailyGradesByStudentDomain,
+  addDailyGrade,
+  calculateSuggestedScore,
+  deleteDailyGrade,
+  markDailyGradesAsNotified,
+  subscribeToDailyGradesByStudentDomain,
 } from '../../service/dailyGradeService';
+import { notifyParentOnDailyGrades } from '../../service/pushNotificationService';
 import { DailyGrade, DailyGradeType } from '../../types/schoolcom';
 
 interface DailyGradeModalProps {
@@ -50,6 +52,7 @@ export default function DailyGradeModal({
 }: DailyGradeModalProps) {
   const [grades, setGrades] = useState<DailyGrade[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [isSendingNotification, setIsSendingNotification] = useState<boolean>(false);
 
   // Form Tambah Entri
   const [formDate, setFormDate] = useState(todayDateString());
@@ -91,6 +94,28 @@ export default function DailyGradeModal({
   }, [visible]);
 
   const suggestedAverage = useMemo(() => calculateSuggestedScore(grades), [grades]);
+
+  // EVT-06: entri yang belum pernah diikutkan dalam notifikasi ke ortu
+  const unnotifiedGrades = useMemo(() => grades.filter((g) => !g.notifiedAt), [grades]);
+
+  const handleSendNotification = async () => {
+    if (unnotifiedGrades.length === 0) {
+      Alert.alert('Tidak Ada yang Perlu Dikirim', 'Semua nilai harian di mapel ini sudah dinotifikasikan ke ortu.');
+      return;
+    }
+
+    setIsSendingNotification(true);
+    try {
+      await notifyParentOnDailyGrades(studentId, studentName, domainName, unnotifiedGrades.length);
+      await markDailyGradesAsNotified(unnotifiedGrades.map((g) => g.id));
+      Alert.alert('Terkirim', `Notifikasi ${unnotifiedGrades.length} nilai harian berhasil dikirim ke ortu.`);
+    } catch (error) {
+      console.error('Error sending daily grade notification:', error);
+      Alert.alert('Gagal', 'Terjadi kesalahan saat mengirim notifikasi.');
+    } finally {
+      setIsSendingNotification(false);
+    }
+  };
 
   // Pola clamp angka sama seperti di TeacherAssessmentView — cegah nilai di luar 0-100
   const handleScoreChange = (text: string) => {
@@ -189,6 +214,26 @@ export default function DailyGradeModal({
             </Text>
           </View>
 
+          {/* EVT-06: Kirim Notifikasi Manual — guru review dulu, baru kirim sekali klik */}
+          <TouchableOpacity
+            style={[
+              styles.notifyBtn,
+              (isSendingNotification || unnotifiedGrades.length === 0) && styles.notifyBtnDisabled,
+            ]}
+            onPress={handleSendNotification}
+            disabled={isSendingNotification || unnotifiedGrades.length === 0}
+          >
+            {isSendingNotification ? (
+              <ActivityIndicator color="#7C3AED" size="small" />
+            ) : (
+              <Text style={styles.notifyBtnText}>
+                {unnotifiedGrades.length > 0
+                  ? `📨 Kirim Notifikasi ke Ortu (${unnotifiedGrades.length} belum dikirim)`
+                  : '✓ Semua Sudah Dinotifikasi'}
+              </Text>
+            )}
+          </TouchableOpacity>
+
           <ScrollView showsVerticalScrollIndicator={false} style={{ maxHeight: 220 }}>
             {isLoading ? (
               <ActivityIndicator size="small" color="#2563EB" style={{ marginVertical: 12 }} />
@@ -199,7 +244,7 @@ export default function DailyGradeModal({
                 <View key={g.id} style={styles.gradeRow}>
                   <View style={{ flex: 1 }}>
                     <Text style={styles.gradeRowTitle}>
-                      {g.type} • {g.date}
+                      {g.type} • {g.date} {g.notifiedAt ? '✓' : ''}
                     </Text>
                     {g.notes ? <Text style={styles.gradeRowNotes}>{g.notes}</Text> : null}
                   </View>
@@ -278,6 +323,25 @@ export default function DailyGradeModal({
 }
 
 const styles = StyleSheet.create({
+  notifyBtn: {
+    backgroundColor: '#F5F3FF',
+    borderWidth: 1,
+    borderColor: '#DDD6FE',
+    borderRadius: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  notifyBtnDisabled: {
+    opacity: 0.6,
+  },
+  notifyBtnText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#7C3AED',
+    textAlign: 'center',
+  },
   modalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0, 0, 0, 0.5)',
