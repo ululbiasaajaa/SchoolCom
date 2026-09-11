@@ -1,21 +1,118 @@
 import {
-    collection,
-    deleteDoc,
-    doc,
-    getDoc,
-    onSnapshot,
-    orderBy,
-    query,
-    serverTimestamp,
-    setDoc,
-    updateDoc,
-    where,
+  collection,
+  deleteDoc,
+  doc,
+  getDoc,
+  getDocs,
+  onSnapshot,
+  orderBy,
+  query,
+  serverTimestamp,
+  setDoc,
+  updateDoc,
+  where,
+  writeBatch,
 } from 'firebase/firestore';
 import { db } from '../config/firebase';
 import { ATP, CurriculumFramework, EducationLevel, TujuanPembelajaran } from '../types/schoolcom';
 
 const CURRICULUM_COLLECTION = 'curriculumFramework';
 const ATP_COLLECTION = 'atp';
+
+/**
+ * PHASE 27 — Template CP untuk jenjang SD (bukti konsep / proof-of-concept).
+ *
+ * Ini BUKAN CP resmi Kurikulum Merdeka — deskripsinya sengaja generik/placeholder.
+ * Tujuannya cuma nunjukkin ke pihak sekolah/dinas bahwa struktur data SchoolCom
+ * SIAP nampung jenjang SD (mata pelajaran, bukan aspek perkembangan kayak TK),
+ * tanpa perlu Admin ngetik satu-satu dari nol. Setelah di-load, Admin WAJIB
+ * mengedit/melengkapi deskripsi CP-nya sesuai dokumen kurikulum resmi sebelum
+ * benar-benar dipakai untuk menilai siswa SD.
+ */
+const SD_TEMPLATE_SUBJECTS: { domainName: string; fase: string; cpDescription: string }[] = [
+  {
+    domainName: 'Pendidikan Agama dan Budi Pekerti',
+    fase: 'Fase A',
+    cpDescription: '[Placeholder] Isi dengan CP resmi mapel ini sesuai fase & agama yang dianut.',
+  },
+  {
+    domainName: 'Pendidikan Pancasila',
+    fase: 'Fase A',
+    cpDescription: '[Placeholder] Isi dengan CP resmi Pendidikan Pancasila sesuai fase.',
+  },
+  {
+    domainName: 'Bahasa Indonesia',
+    fase: 'Fase A',
+    cpDescription: '[Placeholder] Isi dengan CP resmi Bahasa Indonesia sesuai fase.',
+  },
+  {
+    domainName: 'Matematika',
+    fase: 'Fase A',
+    cpDescription: '[Placeholder] Isi dengan CP resmi Matematika sesuai fase.',
+  },
+  {
+    domainName: 'Ilmu Pengetahuan Alam dan Sosial (IPAS)',
+    fase: 'Fase A',
+    cpDescription: '[Placeholder] Isi dengan CP resmi IPAS sesuai fase.',
+  },
+  {
+    domainName: 'Pendidikan Jasmani, Olahraga, dan Kesehatan (PJOK)',
+    fase: 'Fase A',
+    cpDescription: '[Placeholder] Isi dengan CP resmi PJOK sesuai fase.',
+  },
+  {
+    domainName: 'Seni Budaya',
+    fase: 'Fase A',
+    cpDescription: '[Placeholder] Isi dengan CP resmi Seni Budaya sesuai fase.',
+  },
+];
+
+export interface SeedTemplateResult {
+  created: number;
+  skippedExisting: number;
+}
+
+/**
+ * Load template CP SD ke Firestore. Idempotent — kalau nama mapel tertentu
+ * SUDAH ada untuk jenjang SD (misal admin udah pernah nambah manual atau
+ * pernah nge-load template ini sebelumnya), entri itu DI-SKIP, gak ditimpa.
+ */
+export const seedSDCurriculumTemplate = async (): Promise<SeedTemplateResult> => {
+  const existingSnap = await getDocs(
+    query(collection(db, CURRICULUM_COLLECTION), where('educationLevel', '==', 'SD'))
+  );
+  const existingNames = new Set(
+    existingSnap.docs.map((d) => (d.data().domainName as string) || '')
+  );
+
+  const batch = writeBatch(db);
+  let created = 0;
+  let skipped = 0;
+
+  SD_TEMPLATE_SUBJECTS.forEach((subject) => {
+    if (existingNames.has(subject.domainName)) {
+      skipped += 1;
+      return;
+    }
+    const newRef = doc(collection(db, CURRICULUM_COLLECTION));
+    batch.set(newRef, {
+      educationLevel: 'SD' as EducationLevel,
+      fase: subject.fase,
+      domainType: 'mata_pelajaran',
+      domainName: subject.domainName,
+      cpDescription: subject.cpDescription,
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    });
+    created += 1;
+  });
+
+  if (created > 0) {
+    await batch.commit();
+  }
+
+  return { created, skippedExisting: skipped };
+};
 
 export type CurriculumFrameworkInput = Omit<CurriculumFramework, 'id' | 'createdAt' | 'updatedAt'>;
 

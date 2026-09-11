@@ -1,20 +1,21 @@
 import React, { useEffect, useState } from 'react';
 import {
-    ActivityIndicator,
-    Alert,
-    Modal,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
+  ActivityIndicator,
+  Alert,
+  Modal,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from 'react-native';
 
 import {
-    createCurriculumFramework,
-    deleteCurriculumFramework,
-    subscribeToAllCurriculum,
+  createCurriculumFramework,
+  deleteCurriculumFramework,
+  seedSDCurriculumTemplate,
+  subscribeToAllCurriculum,
 } from '../../service/curriculumService';
 import { CurriculumDomainType, CurriculumFramework, EducationLevel } from '../../types/schoolcom';
 
@@ -34,6 +35,7 @@ const LEVEL_BADGE_COLOR: Record<EducationLevel, { bg: string; text: string }> = 
 export default function ManageCurriculumView() {
   const [items, setItems] = useState<CurriculumFramework[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [isSeedingTemplate, setIsSeedingTemplate] = useState<boolean>(false);
 
   // Form Tambah CP
   const [isAddModalOpen, setIsAddModalOpen] = useState<boolean>(false);
@@ -80,6 +82,39 @@ export default function ManageCurriculumView() {
     }
   };
 
+  // Phase 27: Load Template CP SD (Bukti Konsep)
+  const handleLoadSDTemplate = () => {
+    Alert.alert(
+      'Muat Template CP Jenjang SD',
+      'Ini akan menambahkan 7 mata pelajaran umum SD dengan deskripsi CP PLACEHOLDER (bukan CP resmi Kurikulum Merdeka) — tujuannya cuma bukti konsep bahwa struktur data siap menampung jenjang SD. Mata pelajaran yang sudah ada dengan nama sama TIDAK akan ditimpa/diduplikasi. Lanjutkan?',
+      [
+        { text: 'Batal', style: 'cancel' },
+        {
+          text: 'Muat Template',
+          onPress: async () => {
+            setIsSeedingTemplate(true);
+            try {
+              const result = await seedSDCurriculumTemplate();
+              Alert.alert(
+                'Template Dimuat',
+                `${result.created} mata pelajaran SD baru ditambahkan.` +
+                  (result.skippedExisting > 0
+                    ? ` ${result.skippedExisting} dilewati karena sudah ada.`
+                    : '') +
+                  '\n\nPENTING: Deskripsi CP-nya masih placeholder — edit dulu isinya sesuai dokumen kurikulum resmi sebelum dipakai menilai siswa beneran.'
+              );
+            } catch (error) {
+              console.error('Error loading SD template:', error);
+              Alert.alert('Gagal', 'Terjadi kesalahan saat memuat template.');
+            } finally {
+              setIsSeedingTemplate(false);
+            }
+          },
+        },
+      ]
+    );
+  };
+
   const handleDelete = (item: CurriculumFramework) => {
     Alert.alert(
       'Hapus Capaian Pembelajaran?',
@@ -116,6 +151,20 @@ export default function ManageCurriculumView() {
         ke mata pelajaran/aspek di menu "Konfigurasi Penilaian" supaya narasinya otomatis
         muncul di rapor PDF.
       </Text>
+
+      <TouchableOpacity
+        style={[styles.templateBtn, isSeedingTemplate && styles.templateBtnDisabled]}
+        onPress={handleLoadSDTemplate}
+        disabled={isSeedingTemplate}
+      >
+        {isSeedingTemplate ? (
+          <ActivityIndicator color="#7C3AED" size="small" />
+        ) : (
+          <Text style={styles.templateBtnText}>
+            📋 Muat Template CP Jenjang SD (Bukti Konsep)
+          </Text>
+        )}
+      </TouchableOpacity>
 
       {isLoading ? (
         <ActivityIndicator size="small" color="#2563EB" style={{ marginTop: 24 }} />
@@ -264,6 +313,25 @@ export default function ManageCurriculumView() {
 }
 
 const styles = StyleSheet.create({
+  templateBtn: {
+    backgroundColor: '#F5F3FF',
+    borderWidth: 1,
+    borderColor: '#DDD6FE',
+    borderRadius: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  templateBtnDisabled: {
+    opacity: 0.6,
+  },
+  templateBtnText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#7C3AED',
+    textAlign: 'center',
+  },
   tabContentFlex: {
     flex: 1,
     padding: 16,
