@@ -4,6 +4,7 @@ import * as Notifications from 'expo-notifications';
 import { deleteDoc, deleteField, doc, setDoc } from 'firebase/firestore';
 import { Platform } from 'react-native';
 import { db } from '../config/firebase';
+import { PILOT_SCHOOL_ID } from '../constants/school';
 import { User } from '../types/schoolcom';
 
 // Konfigurasi default handler notifikasi foreground (Expo SDK Terbaru)
@@ -94,6 +95,8 @@ export async function registerForPushNotificationsAsync(
       pushToken: token,
       role: user.role,
       platform: Platform.OS,
+      // Fondasi multi-sekolah — lihat constants/school.ts
+      schoolId: PILOT_SCHOOL_ID,
       updatedAt: new Date().toISOString(),
     };
 

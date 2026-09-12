@@ -17,6 +17,7 @@ import {
   where,
 } from 'firebase/firestore';
 import { db } from '../config/firebase';
+import { PILOT_SCHOOL_ID } from '../constants/school';
 import {
   FollowUpLog,
   Incident,
@@ -237,6 +238,8 @@ export const addIncident = async (
     status: getSafeStatus(inputData.status || 'Pending'),
     teacherName: inputData.teacherName,
     followUpLogs: [],
+    // Fondasi multi-sekolah — lihat constants/school.ts
+    schoolId: PILOT_SCHOOL_ID,
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
   };

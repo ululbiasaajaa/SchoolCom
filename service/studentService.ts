@@ -13,6 +13,7 @@ import {
   writeBatch
 } from 'firebase/firestore';
 import { db } from '../config/firebase';
+import { PILOT_SCHOOL_ID } from '../constants/school';
 import { Parent, Student } from '../types/schoolcom';
 
 const STUDENTS_COLLECTION = 'students';
@@ -96,7 +97,8 @@ const autoSeedIfEmpty = async (currentData: Student[]) => {
 
     INITIAL_STUDENTS.forEach((student) => {
       const studentRef = doc(db, STUDENTS_COLLECTION, student.id);
-      batch.set(studentRef, student);
+      // Fondasi multi-sekolah — lihat constants/school.ts
+      batch.set(studentRef, { ...student, schoolId: PILOT_SCHOOL_ID });
     });
     batch.set(seedFlagRef, { seededAt: serverTimestamp() });
 
@@ -144,6 +146,7 @@ export const subscribeToStudents = (callback: (students: Student[]) => void) => 
           // classId (misal tombol "Nilai Harian" di TeacherAssessmentView) selalu
           // nganggap siswa belum termigrasi walau sebenarnya sudah.
           classId: typeof data.classId === 'string' ? data.classId : undefined,
+          schoolId: typeof data.schoolId === 'string' ? data.schoolId : undefined,
           avatar: typeof data.avatar === 'string' ? data.avatar : '👦',
           gender: inferredGender, // Fix: Gender ter-mapping dengan aman!
           dob: typeof data.dob === 'string' ? data.dob : '',
@@ -179,6 +182,8 @@ export const addStudent = async (studentData: StudentInput): Promise<string> => 
   try {
     const docRef = await addDoc(collection(db, STUDENTS_COLLECTION), {
       ...studentData,
+      // Fondasi multi-sekolah — lihat constants/school.ts
+      schoolId: PILOT_SCHOOL_ID,
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
     });

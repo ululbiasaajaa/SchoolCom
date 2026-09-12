@@ -7,6 +7,7 @@ import {
   writeBatch,
 } from 'firebase/firestore';
 import { db } from '../config/firebase';
+import { PILOT_SCHOOL_ID } from '../constants/school';
 
 export type AttendanceStatus = 'Present' | 'Absent' | 'Sick' | 'Permission' | 'Late';
 
@@ -19,6 +20,8 @@ export interface AttendanceRecord {
   status: AttendanceStatus;
   teacherName: string;
   updatedAt: string;
+  // Fondasi multi-sekolah (belum aktif sebagai fitur) — lihat constants/school.ts.
+  schoolId?: string;
 }
 
 // 1. Save Attendance Batch dengan deterministik ID {date}_{studentId}
@@ -44,6 +47,8 @@ export const saveAttendanceBatch = async (
           status: record.status,
           teacherName: record.teacherName,
           updatedAt: record.updatedAt,
+          // Fondasi multi-sekolah — lihat constants/school.ts
+          schoolId: PILOT_SCHOOL_ID,
         },
         { merge: true }
       );

@@ -11,6 +11,7 @@ import {
   writeBatch,
 } from 'firebase/firestore';
 import { db } from '../config/firebase';
+import { PILOT_SCHOOL_ID } from '../constants/school';
 import { DailyGrade } from '../types/schoolcom';
 
 const DAILY_GRADES_COLLECTION = 'dailyGrades';
@@ -146,6 +147,8 @@ export const addDailyGrade = async (input: DailyGradeInput): Promise<string> => 
   try {
     const docRef = await addDoc(collection(db, DAILY_GRADES_COLLECTION), {
       ...input,
+      // Fondasi multi-sekolah — lihat constants/school.ts
+      schoolId: PILOT_SCHOOL_ID,
       createdAt: serverTimestamp(),
     });
     return docRef.id;

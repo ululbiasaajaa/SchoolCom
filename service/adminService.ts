@@ -17,6 +17,7 @@ import {
   updateDoc,
 } from 'firebase/firestore';
 import { db, firebaseConfig } from '../config/firebase';
+import { PILOT_SCHOOL_ID } from '../constants/school';
 // FIX: Jangan duplikasi updateStudent/deleteStudent di sini. Sebelumnya ada 2 implementasi
 // berbeda untuk operasi yang sama (adminService vs studentService) — versi di file ini TIDAK
 // menulis field `updatedAt`, sedangkan versi studentService menulis. Tergantung mana yang
@@ -87,6 +88,8 @@ export const createManagedUser = async (userData: CreateUserDTO): Promise<Create
       name: userData.name,
       email: userData.email,
       role: userData.role,
+      // Fondasi multi-sekolah — lihat constants/school.ts
+      schoolId: PILOT_SCHOOL_ID,
       createdAt: new Date().toISOString(),
       ...(userData.classes ? { classes: userData.classes } : {}),
       ...(userData.studentIds ? { studentIds: userData.studentIds } : {}),
@@ -187,10 +190,16 @@ export const subscribeToAllStudents = (callback: (students: Student[]) => void) 
   });
 };
 
+// CATATAN: fungsi ini kelihatannya duplikat/gak kepake lagi — AddStudentModal.tsx
+// sekarang manggil studentService.addStudent(), bukan ini. Dibiarin buat jaga-jaga
+// kalau ternyata masih ada pemanggil lain yang belum ke-cek, tapi worth dihapus
+// kalau udah dipastikan gak ada yang pakai.
 export const createStudent = async (studentData: CreateStudentDTO): Promise<string> => {
   const newStudentRef = doc(collection(db, 'students'));
   await setDoc(newStudentRef, {
     ...studentData,
+    // Fondasi multi-sekolah — lihat constants/school.ts
+    schoolId: PILOT_SCHOOL_ID,
     createdAt: new Date().toISOString(),
   });
   return newStudentRef.id;

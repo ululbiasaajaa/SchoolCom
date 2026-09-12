@@ -14,6 +14,7 @@ import {
   writeBatch,
 } from 'firebase/firestore';
 import { db } from '../config/firebase';
+import { PILOT_SCHOOL_ID } from '../constants/school';
 import { ATP, CurriculumFramework, EducationLevel, TujuanPembelajaran } from '../types/schoolcom';
 
 const CURRICULUM_COLLECTION = 'curriculumFramework';
@@ -101,6 +102,8 @@ export const seedSDCurriculumTemplate = async (): Promise<SeedTemplateResult> =>
       domainType: 'mata_pelajaran',
       domainName: subject.domainName,
       cpDescription: subject.cpDescription,
+      // Fondasi multi-sekolah — lihat constants/school.ts
+      schoolId: PILOT_SCHOOL_ID,
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
     });
@@ -181,6 +184,8 @@ export const createCurriculumFramework = async (data: CurriculumFrameworkInput):
   const newRef = doc(collection(db, CURRICULUM_COLLECTION));
   await setDoc(newRef, {
     ...data,
+    // Fondasi multi-sekolah — lihat constants/school.ts
+    schoolId: PILOT_SCHOOL_ID,
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
   });
@@ -255,6 +260,8 @@ export const saveATP = async (cpId: string, tpList: TujuanPembelajaran[]): Promi
     {
       cpId,
       tpList,
+      // Fondasi multi-sekolah — lihat constants/school.ts
+      schoolId: PILOT_SCHOOL_ID,
       updatedAt: serverTimestamp(),
     },
     { merge: true }

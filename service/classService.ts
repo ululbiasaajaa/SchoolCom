@@ -1,17 +1,18 @@
 import {
-    addDoc,
-    collection,
-    deleteDoc,
-    deleteField,
-    doc,
-    onSnapshot,
-    orderBy,
-    query,
-    serverTimestamp,
-    updateDoc,
-    where,
+  addDoc,
+  collection,
+  deleteDoc,
+  deleteField,
+  doc,
+  onSnapshot,
+  orderBy,
+  query,
+  serverTimestamp,
+  updateDoc,
+  where,
 } from 'firebase/firestore';
 import { db } from '../config/firebase';
+import { PILOT_SCHOOL_ID } from '../constants/school';
 import { EducationLevel, SchoolClass } from '../types/schoolcom';
 
 const CLASSES_COLLECTION = 'classes';
@@ -77,6 +78,8 @@ export const createClass = async (classData: SchoolClassInput): Promise<string> 
   try {
     const docRef = await addDoc(collection(db, CLASSES_COLLECTION), {
       ...classData,
+      // Fondasi multi-sekolah — lihat constants/school.ts
+      schoolId: PILOT_SCHOOL_ID,
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
     });

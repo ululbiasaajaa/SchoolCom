@@ -1,19 +1,22 @@
 import React, { useEffect, useState } from 'react';
 import {
-    ActivityIndicator,
-    Alert,
-    Modal,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
+  ActivityIndicator,
+  Alert,
+  Modal,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from 'react-native';
 
 import { subscribeToAllUsers } from '../../service/adminService';
 import { createClass, setHomeroomTeacher, subscribeToClasses } from '../../service/classService';
-import { migrateClassNamesToClasses } from '../../service/migrationService';
+import {
+  backfillSchoolIdOnExistingData,
+  migrateClassNamesToClasses,
+} from '../../service/migrationService';
 import { EducationLevel, SchoolClass, User } from '../../types/schoolcom';
 
 const EDUCATION_LEVELS: EducationLevel[] = ['TK', 'SD', 'SMP', 'SMA'];
@@ -29,6 +32,7 @@ export default function ManageClassesView() {
   const [classes, setClasses] = useState<SchoolClass[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [isMigrating, setIsMigrating] = useState<boolean>(false);
+  const [isBackfillingSchoolId, setIsBackfillingSchoolId] = useState<boolean>(false);
 
   // Daftar Guru (buat picker Wali Kelas)
   const [teachers, setTeachers] = useState<User[]>([]);
@@ -153,6 +157,38 @@ export default function ManageClassesView() {
     );
   };
 
+  // Fondasi Multi-Sekolah: Backfill schoolId ke data lama
+  const handleBackfillSchoolId = () => {
+    Alert.alert(
+      'Stempel schoolId ke Data Lama',
+      'Ini akan menandai SEMUA data yang sudah ada sekarang (siswa, kelas, guru, nilai, presensi, dst) sebagai milik sekolah ini — persiapan fondasi kalau nanti ada sekolah lain yang pakai SchoolCom juga. Data yang SUDAH punya schoolId dilewati (aman dijalankan berkali-kali). Lanjutkan?',
+      [
+        { text: 'Batal', style: 'cancel' },
+        {
+          text: 'Jalankan',
+          onPress: async () => {
+            setIsBackfillingSchoolId(true);
+            try {
+              const result = await backfillSchoolIdOnExistingData();
+              const detailLines = Object.entries(result.perCollection)
+                .map(([col, count]) => `- ${col}: ${count}`)
+                .join('\n');
+              Alert.alert(
+                'Selesai',
+                `Total ${result.totalStamped} dokumen distempel schoolId.\n\n${detailLines}`
+              );
+            } catch (error) {
+              console.error('Error backfilling schoolId:', error);
+              Alert.alert('Gagal', 'Terjadi kesalahan saat menjalankan proses ini.');
+            } finally {
+              setIsBackfillingSchoolId(false);
+            }
+          },
+        },
+      ]
+    );
+  };
+
   return (
     <View style={styles.tabContentFlex}>
       <View style={styles.actionHeaderRow}>
@@ -173,6 +209,20 @@ export default function ManageClassesView() {
           <ActivityIndicator color="#2563EB" size="small" />
         ) : (
           <Text style={styles.migrationBtnText}>🔄 Migrasi Data Kelas Lama (dari nama kelas siswa/guru)</Text>
+        )}
+      </TouchableOpacity>
+
+      {/* Fondasi Multi-Sekolah: stempel schoolId ke data lama — jalankan SETELAH
+          migrasi kelas di atas, dan idealnya cuma sekali (tapi aman diulang) */}
+      <TouchableOpacity
+        style={[styles.backfillBtn, isBackfillingSchoolId && styles.migrationBtnDisabled]}
+        onPress={handleBackfillSchoolId}
+        disabled={isBackfillingSchoolId}
+      >
+        {isBackfillingSchoolId ? (
+          <ActivityIndicator color="#7C3AED" size="small" />
+        ) : (
+          <Text style={styles.backfillBtnText}>🏷️ Stempel schoolId ke Semua Data Lama</Text>
         )}
       </TouchableOpacity>
 
@@ -417,6 +467,22 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 12,
     fontWeight: 'bold',
+  },
+  backfillBtn: {
+    backgroundColor: '#F5F3FF',
+    borderWidth: 1,
+    borderColor: '#DDD6FE',
+    borderRadius: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  backfillBtnText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#7C3AED',
+    textAlign: 'center',
   },
   migrationBtn: {
     backgroundColor: '#EFF6FF',

@@ -11,6 +11,7 @@ import {
   writeBatch
 } from 'firebase/firestore';
 import { db } from '../config/firebase';
+import { PILOT_SCHOOL_ID } from '../constants/school';
 import { AssessmentConfig, StudentAssessment } from '../types/schoolcom';
 
 // ==========================================
@@ -117,6 +118,9 @@ export const saveAssessmentConfig = async (
       {
         ...config,
         id: docId,
+        // Fondasi multi-sekolah — lihat constants/school.ts. Config masih global
+        // per periode, bukan per sekolah, sampai ada Sekolah B beneran.
+        schoolId: PILOT_SCHOOL_ID,
         updatedAt: config.updatedAt || new Date().toISOString(),
       },
       { merge: true }
@@ -184,6 +188,8 @@ export const saveAssessmentBatch = async (
         score: item.score !== undefined ? item.score : null,
         predicate: item.predicate !== undefined ? item.predicate : null,
         narrative: item.narrative !== undefined ? item.narrative : null,
+        // Fondasi multi-sekolah — lihat constants/school.ts
+        schoolId: PILOT_SCHOOL_ID,
       };
 
       batch.set(docRef, recordToSave, { merge: true });

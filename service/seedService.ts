@@ -5,6 +5,7 @@ import {
   setDoc
 } from 'firebase/firestore';
 import { db } from '../config/firebase';
+import { PILOT_SCHOOL_ID } from '../constants/school';
 import { Student } from '../types/schoolcom';
 
 // Baseline & Tester Data
@@ -48,6 +49,8 @@ export const seedRasyidStudent = async (): Promise<boolean> => {
       docRef,
       {
         ...data,
+        // Fondasi multi-sekolah — lihat constants/school.ts
+        schoolId: PILOT_SCHOOL_ID,
         updatedAt: serverTimestamp(),
         // createdAt HANYA dikirim kalau dokumen belum pernah ada sebelumnya
         ...(isFirstTimeCreation ? { createdAt: serverTimestamp() } : {}),

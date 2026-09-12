@@ -8,6 +8,9 @@ export interface User {
   studentIds?: string[]; // Properti opsional khusus untuk role 'parent'
   classes?: string[];    // Properti opsional khusus untuk role 'teacher'
   classIds?: string[];   // FIX Phase 22: hasil migrasi dari `classes` (string[]) -> reference ke collection `classes`
+  // Fondasi multi-sekolah (belum aktif sebagai fitur) — lihat constants/school.ts.
+  // Sekarang selalu bernilai PILOT_SCHOOL_ID untuk semua user.
+  schoolId?: string;
 }
 
 export type CategoryType = 'Observation' | 'Behavior' | 'Academic' | 'Social' | 'Incident' | 'Health' | 'Other';
@@ -29,7 +32,10 @@ export interface Student {
   classId?: string; // Phase 22: hasil migrasi, reference ke collection `classes`. className TETAP dipertahankan untuk backward-compat.
   dob: string;
   parents: Parent[];
+  // Fondasi multi-sekolah (belum aktif sebagai fitur) — lihat constants/school.ts.
+  schoolId?: string;
 }
+
 
 export interface FollowUpLog {
   id: string;
@@ -55,6 +61,8 @@ export interface Incident {
   updatedAt?: string;
   teacherName: string;
   followUpLogs: FollowUpLog[];
+  // Fondasi multi-sekolah (belum aktif sebagai fitur) — lihat constants/school.ts.
+  schoolId?: string;
 }
 
 // Strictly Typed Input Payload untuk Pembuatan Incident Baru
@@ -107,6 +115,9 @@ export interface AssessmentConfig {
   predicates: AssessmentPredicateConfig[];
   subjects: AssessmentSubjectConfig[];
   updatedAt: string;
+  // Fondasi multi-sekolah (belum aktif sebagai fitur) — lihat constants/school.ts.
+  // Config masih GLOBAL per periode (bukan per sekolah) sampai ada Sekolah B beneran.
+  schoolId?: string;
 }
 
 export interface StudentAssessment {
@@ -124,6 +135,8 @@ export interface StudentAssessment {
   teacherName: string;
   createdAt: string;
   updatedAt: string;
+  // Fondasi multi-sekolah (belum aktif sebagai fitur) — lihat constants/school.ts.
+  schoolId?: string;
 }
 
 // ==========================================
@@ -167,6 +180,8 @@ export interface SchoolClass {
   homeroomTeacherId?: string; // uid guru wali kelas (opsional, bisa diisi belakangan)
   createdAt: string;
   updatedAt: string;
+  // Fondasi multi-sekolah (belum aktif sebagai fitur) — lihat constants/school.ts.
+  schoolId?: string;
 }
 
 /**
@@ -193,6 +208,8 @@ export interface CurriculumFramework {
   cpDescription: string; // Narasi capaian pembelajaran
   createdAt: string;
   updatedAt: string;
+  // Fondasi multi-sekolah (belum aktif sebagai fitur) — lihat constants/school.ts.
+  schoolId?: string;
 }
 
 /**
@@ -213,6 +230,8 @@ export interface ATP {
   cpId: string; // Reference ke CurriculumFramework.id
   tpList: TujuanPembelajaran[];
   updatedAt: string;
+  // Fondasi multi-sekolah (belum aktif sebagai fitur) — lihat constants/school.ts.
+  schoolId?: string;
 }
 
 /**
@@ -242,4 +261,6 @@ export interface DailyGrade {
   // beberapa entri, baru kirim notifikasi manual sekali klik (bukan per-entri),
   // supaya ortu gak kebanjiran push notification tiap kali 1 nilai diinput.
   notifiedAt?: string;
+  // Fondasi multi-sekolah (belum aktif sebagai fitur) — lihat constants/school.ts.
+  schoolId?: string;
 }

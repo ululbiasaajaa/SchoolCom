@@ -1,11 +1,12 @@
 import {
-    collection,
-    doc,
-    getDocs,
-    serverTimestamp,
-    writeBatch,
+  collection,
+  doc,
+  getDocs,
+  serverTimestamp,
+  writeBatch,
 } from 'firebase/firestore';
 import { db } from '../config/firebase';
+import { PILOT_SCHOOL_ID } from '../constants/school';
 import { EducationLevel } from '../types/schoolcom';
 
 /**
@@ -29,6 +30,67 @@ import { EducationLevel } from '../types/schoolcom';
  * `updateClass()` setelah migrasi selesai kalau ada kelas yang levelnya
  * bukan default.
  */
+
+export interface BackfillSchoolIdResult {
+  perCollection: Record<string, number>;
+  totalStamped: number;
+}
+
+// Semua collection yang butuh schoolId, sesuai daftar field opsional yang udah
+// ditambahin ke types/schoolcom.ts.
+const COLLECTIONS_NEEDING_SCHOOL_ID = [
+  'users',
+  'students',
+  'classes',
+  'incidents',
+  'attendance',
+  'assessmentConfigs',
+  'assessments',
+  'dailyGrades',
+  'curriculumFramework',
+  'atp',
+  'pushTokens',
+];
+
+/**
+ * MIGRASI SATU KALI (Fondasi Multi-Sekolah) — jalankan lewat tombol admin khusus,
+ * SEKALI aja, SETELAH semua fungsi CREATE di service lain udah distempel
+ * `schoolId: PILOT_SCHOOL_ID` (lihat constants/school.ts).
+ *
+ * Idempotent: dokumen yang UDAH punya field `schoolId` (apapun isinya) di-skip,
+ * gak ditimpa. Jadi aman dipencet berkali-kali kalau ada collection yang gagal
+ * di percobaan sebelumnya (misal karena rules/network), tinggal jalanin ulang.
+ *
+ * Batching di-chunk per 400 operasi (di bawah limit 500 per batch Firestore)
+ * biar aman kalau suatu saat volume data per collection udah lumayan besar.
+ */
+export const backfillSchoolIdOnExistingData = async (): Promise<BackfillSchoolIdResult> => {
+  const perCollection: Record<string, number> = {};
+  let totalStamped = 0;
+
+  for (const collectionName of COLLECTIONS_NEEDING_SCHOOL_ID) {
+    const snapshot = await getDocs(collection(db, collectionName));
+    const docsNeedingStamp = snapshot.docs.filter((d) => !d.data().schoolId);
+
+    let stampedInThisCollection = 0;
+    const CHUNK_SIZE = 400;
+
+    for (let i = 0; i < docsNeedingStamp.length; i += CHUNK_SIZE) {
+      const chunk = docsNeedingStamp.slice(i, i + CHUNK_SIZE);
+      const batch = writeBatch(db);
+      chunk.forEach((docSnap) => {
+        batch.update(docSnap.ref, { schoolId: PILOT_SCHOOL_ID });
+      });
+      await batch.commit();
+      stampedInThisCollection += chunk.length;
+    }
+
+    perCollection[collectionName] = stampedInThisCollection;
+    totalStamped += stampedInThisCollection;
+  }
+
+  return { perCollection, totalStamped };
+};
 
 export interface MigrationDefaults {
   /** Educationlevel default untuk kelas yang baru dibuat dari migrasi. */
@@ -107,6 +169,8 @@ export const migrateClassNamesToClasses = async (
       name,
       educationLevel: defaults.defaultEducationLevel,
       academicYear: defaults.defaultAcademicYear,
+      // Fondasi multi-sekolah — lihat constants/school.ts
+      schoolId: PILOT_SCHOOL_ID,
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
     });
