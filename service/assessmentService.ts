@@ -2,6 +2,7 @@ import {
   collection,
   doc,
   getDoc,
+  getDocs,
   onSnapshot,
   query,
   setDoc,
@@ -42,6 +43,40 @@ const getSafeAssessmentId = (
 // ==========================================
 // 1. ASSESSMENT CONFIG FUNCTIONS (ADMIN WRITE, TEACHER/ADMIN READ)
 // ==========================================
+
+/**
+ * FIX (mencegah "data hilang dari laporan"): Hitung berapa banyak nilai siswa
+ * yang sudah tersimpan untuk 1 subjectId di periode tertentu.
+ *
+ * Dipakai SEBELUM admin menghapus mata pelajaran dari Konfigurasi Penilaian.
+ * Tanpa cek ini, admin bisa menghapus mata pelajaran yang siswanya sudah punya
+ * nilai — datanya TIDAK hilang dari Firestore (sengaja gak di-cascade-delete,
+ * biar data historis aman), tapi jadi gak akan pernah muncul lagi di rekap CSV
+ * atau rapor PDF manapun karena kedua export itu ngikutin daftar subjectId di
+ * config saat ini, bukan nyari semua subjectId yang pernah ada di data nilai.
+ */
+export const countAssessmentsBySubject = async (
+  subjectId: string,
+  academicYear: string,
+  term: string
+): Promise<number> => {
+  try {
+    const q = query(
+      collection(db, 'assessments'),
+      where('subjectId', '==', subjectId),
+      where('academicYear', '==', academicYear),
+      where('term', '==', term)
+    );
+    const snapshot = await getDocs(q);
+    return snapshot.size;
+  } catch (error: unknown) {
+    console.error(`Error counting assessments for subject ${subjectId}:`, error);
+    // Fail-safe: kalau gagal ngecek, anggap ADA data (return angka > 0 semu)
+    // supaya UI pemanggil nampilin warning yang lebih hati-hati daripada
+    // diam-diam ngizinin hapus padahal ceknya gagal.
+    return -1;
+  }
+};
 
 /**
  * Mengambil konfigurasi penilaian berdasarkan tahun ajaran dan semester.

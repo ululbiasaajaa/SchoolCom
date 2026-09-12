@@ -11,8 +11,10 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import {
+  countAssessmentsBySubject,
   saveAssessmentConfig,
   subscribeToAssessmentConfig,
 } from '../../service/assessmentService';
@@ -45,6 +47,10 @@ export default function AdminAssessmentConfigModal({
   visible,
   onClose,
 }: AdminAssessmentConfigModalProps) {
+  // FIX UI/UX: modal ini bergaya "bottom sheet" — tombol "Simpan Konfigurasi" di
+  // paling bawah bisa ketiban gesture/navigation bar Android tanpa padding ini.
+  const insets = useSafeAreaInsets();
+
   // State Periode Aktif
   const [selectedAcademicYear, setSelectedAcademicYear] = useState<string>('2026/2027');
   const [selectedTerm, setSelectedTerm] = useState<string>('Semester 1');
@@ -77,6 +83,10 @@ export default function AdminAssessmentConfigModal({
 
   // State Input Tambah Predicate Baru
   const [newPredicateLabel, setNewPredicateLabel] = useState<string>('');
+
+  // FIX: state buat nunjukkin lagi ngecek data nilai sebelum benar-benar
+  // ngizinin hapus mata pelajaran (nyegah double-tap sambil nunggu query)
+  const [checkingDeleteSubjectId, setCheckingDeleteSubjectId] = useState<string | null>(null);
 
   // State Daftar CP (Phase 25 - untuk picker "Tautkan ke CP" saat tambah subjek baru)
   const [cpList, setCpList] = useState<CurriculumFramework[]>([]);
@@ -211,23 +221,55 @@ export default function AdminAssessmentConfigModal({
   };
 
   // Handler Confirmation Guard untuk Hapus Subject
-  const handleRemoveSubject = (subject: AssessmentSubjectConfig) => {
-    Alert.alert(
-      'Hapus Mata Pelajaran?',
-      `Apakah Anda yakin ingin menghapus mata pelajaran "${subject.name}" dari konfigurasi periode ${selectedAcademicYear} (${selectedTerm})?`,
-      [
-        {
-          text: 'Batal',
-          style: 'cancel',
-        },
-        {
-          text: 'Hapus',
-          style: 'destructive',
-          onPress: () => executeRemoveSubject(subject.id),
-        },
-      ],
-      { cancelable: true }
+  // FIX: sebelumnya langsung nanya konfirmasi tanpa ngecek apakah mapel ini
+  // udah punya nilai siswa tersimpan. Kalau udah ada dan tetep dihapus dari
+  // config, datanya gak hilang dari Firestore tapi jadi gak akan pernah
+  // muncul lagi di rekap CSV / rapor PDF (karena export ngikutin daftar
+  // subjectId di config saat ini, bukan nyari semua data yang pernah ada).
+  const handleRemoveSubject = async (subject: AssessmentSubjectConfig) => {
+    setCheckingDeleteSubjectId(subject.id);
+    const existingCount = await countAssessmentsBySubject(
+      subject.id,
+      selectedAcademicYear,
+      selectedTerm
     );
+    setCheckingDeleteSubjectId(null);
+
+    if (existingCount !== 0) {
+      // existingCount > 0: beneran ada data. existingCount === -1: gagal ngecek
+      // (fail-safe), tetep tampilin warning yang sama biar admin tetep hati-hati.
+      const countLabel =
+        existingCount === -1 ? 'sejumlah' : `${existingCount}`;
+      Alert.alert(
+        '⚠️ Mata Pelajaran Ini Sudah Punya Nilai Tersimpan',
+        `${countLabel} data nilai siswa sudah tersimpan untuk "${subject.name}" di periode ${selectedAcademicYear} (${selectedTerm}). Kalau tetap dihapus dari konfigurasi ini, data nilainya TIDAK terhapus dari database, tapi TIDAK AKAN MUNCUL LAGI di rekap CSV atau rapor PDF manapun. Yakin tetap mau menghapus?`,
+        [
+          { text: 'Batal', style: 'cancel' },
+          {
+            text: 'Tetap Hapus',
+            style: 'destructive',
+            onPress: () => executeRemoveSubject(subject.id),
+          },
+        ]
+      );
+    } else {
+      Alert.alert(
+        'Hapus Mata Pelajaran?',
+        `Apakah Anda yakin ingin menghapus mata pelajaran "${subject.name}" dari konfigurasi periode ${selectedAcademicYear} (${selectedTerm})?`,
+        [
+          {
+            text: 'Batal',
+            style: 'cancel',
+          },
+          {
+            text: 'Hapus',
+            style: 'destructive',
+            onPress: () => executeRemoveSubject(subject.id),
+          },
+        ],
+        { cancelable: true }
+      );
+    }
   };
 
   // Handler Toggle Field Subject yang Sudah Ada
@@ -304,7 +346,7 @@ export default function AdminAssessmentConfigModal({
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={handleRequestClose}>
       <View style={styles.modalOverlay}>
-        <View style={styles.modalContainer}>
+        <View style={[styles.modalContainer, { paddingBottom: 20 + insets.bottom }]}>
           {/* Header Modal */}
           <View style={styles.modalHeader}>
             <View>
@@ -439,8 +481,11 @@ export default function AdminAssessmentConfigModal({
                         <TouchableOpacity
                           style={styles.deleteSubBtn}
                           onPress={() => handleRemoveSubject(sub)}
+                          disabled={checkingDeleteSubjectId === sub.id}
                         >
-                          <Text style={styles.deleteSubBtnText}>Hapus</Text>
+                          <Text style={styles.deleteSubBtnText}>
+                            {checkingDeleteSubjectId === sub.id ? 'Mengecek...' : 'Hapus'}
+                          </Text>
                         </TouchableOpacity>
                       </View>
 
