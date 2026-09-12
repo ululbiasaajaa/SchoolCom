@@ -9,6 +9,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 // Import Firestore Helpers
 import { doc, getDoc } from 'firebase/firestore';
@@ -75,6 +76,11 @@ interface ParentDashboardViewProps {
 export default function ParentDashboardView({
   currentUser,
 }: ParentDashboardViewProps) {
+  // FIX UI/UX: 2 modal di bawah (Riwayat Rapor & Analisis) bergaya "bottom sheet"
+  // — tanpa padding dinamis ini, konten/tombol paling bawah bisa ketiban
+  // gesture/navigation bar Android.
+  const insets = useSafeAreaInsets();
+
   // 1. Periode Akademik Aktif (Default)
   const [selectedAcademicYear, setSelectedAcademicYear] = useState<string>('2026/2027');
   const [selectedTerm, setSelectedTerm] = useState<string>('Semester 1');
@@ -1091,7 +1097,7 @@ export default function ParentDashboardView({
         onRequestClose={() => setIsHistoryModalVisible(false)}
       >
         <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
+          <View style={[styles.modalContent, { paddingBottom: 20 + insets.bottom }]}>
             <View style={styles.modalHeaderContainer}>
               <Text style={styles.modalTitle}>Detail Rapor Riwayat</Text>
               <TouchableOpacity
@@ -1158,7 +1164,7 @@ export default function ParentDashboardView({
         onRequestClose={() => setIsAnalyticsModalVisible(false)}
       >
         <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
+          <View style={[styles.modalContent, { paddingBottom: 20 + insets.bottom }]}>
             <View style={styles.modalHeaderContainer}>
               <View>
                 <Text style={styles.modalTitle}>Analisis Perkembangan Belajar</Text>

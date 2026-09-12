@@ -10,6 +10,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import {
   addDailyGrade,
@@ -50,6 +51,11 @@ export default function DailyGradeModal({
   term,
   teacherName,
 }: DailyGradeModalProps) {
+  // FIX UI/UX: modal ini bergaya "bottom sheet" (nempel di dasar layar) —
+  // tombol paling bawah bisa ketiban gesture/navigation bar Android kalau gak
+  // dikasih padding tambahan sesuai tinggi nav bar device masing-masing.
+  const insets = useSafeAreaInsets();
+
   const [grades, setGrades] = useState<DailyGrade[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [isSendingNotification, setIsSendingNotification] = useState<boolean>(false);
@@ -190,7 +196,7 @@ export default function DailyGradeModal({
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
       <View style={styles.modalOverlay}>
-        <View style={styles.modalContent}>
+        <View style={[styles.modalContent, { paddingBottom: 20 + insets.bottom }]}>
           <View style={styles.modalHeaderRow}>
             <View style={{ flex: 1 }}>
               <Text style={styles.modalTitle}>Nilai Harian</Text>

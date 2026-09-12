@@ -9,6 +9,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Incident, Parent, Student } from '../../types/schoolcom';
 
@@ -25,6 +26,10 @@ export default function WhatsAppModal({
   incident,
   onClose,
 }: WhatsAppModalProps) {
+  // FIX UI/UX: modal bottom-sheet — tombol aksi paling bawah rawan ketiban
+  // gesture/navigation bar Android tanpa padding dinamis ini.
+  const insets = useSafeAreaInsets();
+
   const [waSelectedParent, setWaSelectedParent] = useState<Parent | null>(null);
   const [waMessageDraft, setWaMessageDraft] = useState<string>('');
 
@@ -90,7 +95,7 @@ export default function WhatsAppModal({
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
       <View style={styles.modalOverlay}>
-        <View style={styles.modalContainer}>
+        <View style={[styles.modalContainer, { paddingBottom: 20 + insets.bottom }]}>
           <Text style={styles.modalTitle}>Kirim Laporan via WhatsApp</Text>
 
           <Text style={styles.inputLabel}>Pilih Penerima (Orang Tua / Wali)</Text>

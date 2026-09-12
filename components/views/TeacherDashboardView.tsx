@@ -8,6 +8,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { subscribeToAllStudentAssessments } from '../../service/assessmentService';
 import {
@@ -80,6 +81,11 @@ export default function TeacherDashboardView({
   onOpenNewIncident,
   onSelectStudent,
 }: TeacherDashboardViewProps) {
+  // FIX UI/UX: modal Evaluasi Siswa di bawah bergaya "bottom sheet" — tanpa
+  // padding dinamis ini, konten paling bawah bisa ketiban gesture/navigation
+  // bar Android.
+  const insets = useSafeAreaInsets();
+
   // Existing Filter States
   const [selectedStatus, setSelectedStatus] = useState<'All' | StatusType>('All');
   const [selectedCategory, setSelectedCategory] = useState<'All' | CategoryType>('All');
@@ -388,7 +394,7 @@ export default function TeacherDashboardView({
         onRequestClose={handleCloseHistoryModal}
       >
         <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
+          <View style={[styles.modalContent, { paddingBottom: 20 + insets.bottom }]}>
             {/* Modal Header */}
             <View style={styles.modalHeaderContainer}>
               <View>
