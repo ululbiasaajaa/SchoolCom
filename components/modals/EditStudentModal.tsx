@@ -3,6 +3,7 @@ import {
   ActivityIndicator,
   Alert,
   Modal,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -13,8 +14,9 @@ import {
 // Import Types & Service
 // FIX: pakai deleteStudentCascade (bukan deleteStudent biasa) supaya data terkait
 // (assessments, attendance, incidents, link ke parent) ikut dibersihkan saat siswa dihapus.
+import { subscribeToClasses } from '../../service/classService';
 import { deleteStudentCascade, updateStudent } from '../../service/studentService';
-import { Student } from '../../types/schoolcom';
+import { SchoolClass, Student } from '../../types/schoolcom';
 
 interface EditStudentModalProps {
   visible: boolean;
@@ -22,21 +24,36 @@ interface EditStudentModalProps {
   onClose: () => void;
 }
 
-const AVAILABLE_CLASSES = ['Kelas TK-A', 'Kelas TK-B', 'Kelas Playgroup'];
-
 const EditStudentModal: React.FC<EditStudentModalProps> = ({ visible, student, onClose }) => {
   const [name, setName] = useState<string>('');
-  const [className, setClassName] = useState<string>('Kelas TK-A');
+  // FIX BUG: sebelumnya pilihan kelas dari list hardcode (`AVAILABLE_CLASSES`) yang
+  // gak nyambung ke collection `classes` asli — admin cuma bisa milih dari 3 opsi
+  // basi, dan `classId` siswa gak pernah ke-update pas pindah kelas (cuma `className`
+  // doang), bikin classId & className siswa itu jadi gak sinkron. Sekarang ambil
+  // langsung dari `classes` collection, dan update classId + className bareng.
+  const [classes, setClasses] = useState<SchoolClass[]>([]);
+  const [isClassesLoading, setIsClassesLoading] = useState(true);
+  const [selectedClassId, setSelectedClassId] = useState<string | null>(null);
   const [gender, setGender] = useState<'M' | 'F'>('M');
   const [parentName, setParentName] = useState<string>('');
   const [parentPhone, setParentPhone] = useState<string>('');
   const [isLoading, setIsLoading] = useState<boolean>(false);
 
+  // Subscribe daftar kelas asli selama modal terbuka
+  useEffect(() => {
+    if (!visible) return;
+    setIsClassesLoading(true);
+    const unsub = subscribeToClasses((fetchedClasses) => {
+      setClasses(fetchedClasses);
+      setIsClassesLoading(false);
+    });
+    return () => unsub();
+  }, [visible]);
+
   // Synchronize state when student object changes
   useEffect(() => {
     if (student) {
       setName(student.name || '');
-      setClassName(student.className || 'Kelas TK-A');
       setGender(student.gender === 'F' ? 'F' : 'M');
       if (student.parents && student.parents.length > 0) {
         setParentName(student.parents[0].name || '');
@@ -48,6 +65,22 @@ const EditStudentModal: React.FC<EditStudentModalProps> = ({ visible, student, o
     }
   }, [student]);
 
+  // Set kelas awal begitu daftar kelas asli udah kemuat, prioritaskan classId
+  // siswa (data akurat) — fallback cocokin by className kalau classId belum ada
+  // (siswa lama pra-migrasi), biar modal ini gak nampilin "kelas kosong" tiba-tiba.
+  useEffect(() => {
+    if (!student || classes.length === 0) return;
+
+    if (student.classId && classes.some((c) => c.id === student.classId)) {
+      setSelectedClassId(student.classId);
+    } else if (student.className) {
+      const matchByName = classes.find((c) => c.name === student.className);
+      setSelectedClassId(matchByName ? matchByName.id : null);
+    } else {
+      setSelectedClassId(null);
+    }
+  }, [student, classes]);
+
   // UPDATE Siswa ke Cloud Firestore
   const handleUpdate = async () => {
     if (!student) return;
@@ -56,11 +89,21 @@ const EditStudentModal: React.FC<EditStudentModalProps> = ({ visible, student, o
       return;
     }
 
+    const selectedClass = classes.find((c) => c.id === selectedClassId);
+    if (!selectedClass) {
+      Alert.alert(
+        'Kelas Belum Dipilih',
+        'Pilih kelas dulu. Kalau daftar kelas kosong, tambah kelas dulu lewat tab "Kelas".'
+      );
+      return;
+    }
+
     setIsLoading(true);
     try {
       await updateStudent(student.id, {
         name: name.trim(),
-        className,
+        className: selectedClass.name,
+        classId: selectedClass.id,
         avatar: gender === 'F' ? '👧' : '👦',
         gender,
         parents: parentName.trim()
@@ -116,115 +159,130 @@ const EditStudentModal: React.FC<EditStudentModalProps> = ({ visible, student, o
     <Modal visible={visible} animationType="fade" transparent onRequestClose={onClose}>
       <View style={styles.modalOverlay}>
         <View style={styles.modalContainer}>
-          {/* Header Modal & Tombol Hapus */}
-          <View style={styles.modalHeader}>
-            <Text style={styles.modalTitle}>Edit Data Siswa</Text>
-            <TouchableOpacity 
-              style={styles.deleteIconButton} 
-              onPress={handleDelete} 
-              disabled={isLoading}
-            >
-              <Text style={styles.deleteIconText}>🗑️ Hapus</Text>
-            </TouchableOpacity>
-          </View>
+          <ScrollView showsVerticalScrollIndicator={false}>
+            {/* Header Modal & Tombol Hapus */}
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Edit Data Siswa</Text>
+              <TouchableOpacity
+                style={styles.deleteIconButton}
+                onPress={handleDelete}
+                disabled={isLoading}
+              >
+                <Text style={styles.deleteIconText}>🗑️ Hapus</Text>
+              </TouchableOpacity>
+            </View>
 
-          {/* Form Inputs */}
-          <View style={styles.formGroup}>
-            <Text style={styles.inputLabel}>Nama Lengkap Siswa</Text>
-            <TextInput
-              style={styles.textInput}
-              placeholder="Contoh: Aisyah Putri"
-              placeholderTextColor="#9CA3AF"
-              value={name}
-              onChangeText={setName}
-            />
-          </View>
+            {/* Form Inputs */}
+            <View style={styles.formGroup}>
+              <Text style={styles.inputLabel}>Nama Lengkap Siswa</Text>
+              <TextInput
+                style={styles.textInput}
+                placeholder="Contoh: Aisyah Putri"
+                placeholderTextColor="#9CA3AF"
+                value={name}
+                onChangeText={setName}
+              />
+            </View>
 
-          <View style={styles.formGroup}>
-            <Text style={styles.inputLabel}>Pindah / Alokasi Kelas</Text>
-            <View style={styles.classRow}>
-              {AVAILABLE_CLASSES.map((cls) => (
+            <View style={styles.formGroup}>
+              <Text style={styles.inputLabel}>Pindah / Alokasi Kelas</Text>
+              {isClassesLoading ? (
+                <ActivityIndicator size="small" color="#2563EB" style={{ marginVertical: 8 }} />
+              ) : classes.length === 0 ? (
+                <Text style={styles.emptyClassText}>
+                  Belum ada kelas terdaftar. Tambah kelas dulu lewat tab "Kelas".
+                </Text>
+              ) : (
+                <View style={styles.classRow}>
+                  {classes.map((cls) => (
+                    <TouchableOpacity
+                      key={cls.id}
+                      style={[styles.classOptionBtn, selectedClassId === cls.id && styles.classOptionBtnActive]}
+                      onPress={() => setSelectedClassId(cls.id)}
+                    >
+                      <Text
+                        style={[
+                          styles.classOptionText,
+                          selectedClassId === cls.id && styles.classOptionTextActive,
+                        ]}
+                      >
+                        {cls.name}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              )}
+            </View>
+
+            <View style={styles.formGroup}>
+              <Text style={styles.inputLabel}>Jenis Kelamin</Text>
+              <View style={styles.genderContainer}>
                 <TouchableOpacity
-                  key={cls}
-                  style={[styles.classOptionBtn, className === cls && styles.classOptionBtnActive]}
-                  onPress={() => setClassName(cls)}
+                  style={[styles.genderOptionBtn, gender === 'M' && styles.genderOptionBtnActive]}
+                  onPress={() => setGender('M')}
                 >
-                  <Text style={[styles.classOptionText, className === cls && styles.classOptionTextActive]}>
-                    {cls}
+                  <Text style={[styles.genderOptionText, gender === 'M' && styles.genderOptionTextActive]}>
+                    👦 Laki-laki
                   </Text>
                 </TouchableOpacity>
-              ))}
-            </View>
-          </View>
 
-          <View style={styles.formGroup}>
-            <Text style={styles.inputLabel}>Jenis Kelamin</Text>
-            <View style={styles.genderContainer}>
+                <TouchableOpacity
+                  style={[styles.genderOptionBtn, gender === 'F' && styles.genderOptionBtnActive]}
+                  onPress={() => setGender('F')}
+                >
+                  <Text style={[styles.genderOptionText, gender === 'F' && styles.genderOptionTextActive]}>
+                    👧 Perempuan
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+
+            <View style={styles.formGroup}>
+              <Text style={styles.inputLabel}>Nama Wali / Orang Tua</Text>
+              <TextInput
+                style={styles.textInput}
+                placeholder="Contoh: Ibu Aisyah"
+                placeholderTextColor="#9CA3AF"
+                value={parentName}
+                onChangeText={setParentName}
+              />
+            </View>
+
+            <View style={styles.formGroup}>
+              <Text style={styles.inputLabel}>No. WhatsApp Wali</Text>
+              <TextInput
+                style={styles.textInput}
+                placeholder="Contoh: 6281234567890"
+                placeholderTextColor="#9CA3AF"
+                keyboardType="phone-pad"
+                value={parentPhone}
+                onChangeText={setParentPhone}
+              />
+            </View>
+
+            {/* Action Buttons */}
+            <View style={styles.modalActions}>
               <TouchableOpacity
-                style={[styles.genderOptionBtn, gender === 'M' && styles.genderOptionBtnActive]}
-                onPress={() => setGender('M')}
+                style={styles.cancelBtn}
+                onPress={onClose}
+                disabled={isLoading}
               >
-                <Text style={[styles.genderOptionText, gender === 'M' && styles.genderOptionTextActive]}>
-                  👦 Laki-laki
-                </Text>
+                <Text style={styles.cancelBtnText}>Batal</Text>
               </TouchableOpacity>
 
               <TouchableOpacity
-                style={[styles.genderOptionBtn, gender === 'F' && styles.genderOptionBtnActive]}
-                onPress={() => setGender('F')}
+                style={styles.saveBtn}
+                onPress={handleUpdate}
+                disabled={isLoading}
               >
-                <Text style={[styles.genderOptionText, gender === 'F' && styles.genderOptionTextActive]}>
-                  👧 Perempuan
-                </Text>
+                {isLoading ? (
+                  <ActivityIndicator size="small" color="#FFFFFF" />
+                ) : (
+                  <Text style={styles.saveBtnText}>Simpan Perubahan</Text>
+                )}
               </TouchableOpacity>
             </View>
-          </View>
-
-          <View style={styles.formGroup}>
-            <Text style={styles.inputLabel}>Nama Wali / Orang Tua</Text>
-            <TextInput
-              style={styles.textInput}
-              placeholder="Contoh: Ibu Aisyah"
-              placeholderTextColor="#9CA3AF"
-              value={parentName}
-              onChangeText={setParentName}
-            />
-          </View>
-
-          <View style={styles.formGroup}>
-            <Text style={styles.inputLabel}>No. WhatsApp Wali</Text>
-            <TextInput
-              style={styles.textInput}
-              placeholder="Contoh: 6281234567890"
-              placeholderTextColor="#9CA3AF"
-              keyboardType="phone-pad"
-              value={parentPhone}
-              onChangeText={setParentPhone}
-            />
-          </View>
-
-          {/* Action Buttons */}
-          <View style={styles.modalActions}>
-            <TouchableOpacity 
-              style={styles.cancelBtn} 
-              onPress={onClose} 
-              disabled={isLoading}
-            >
-              <Text style={styles.cancelBtnText}>Batal</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity 
-              style={styles.saveBtn} 
-              onPress={handleUpdate} 
-              disabled={isLoading}
-            >
-              {isLoading ? (
-                <ActivityIndicator size="small" color="#FFFFFF" />
-              ) : (
-                <Text style={styles.saveBtnText}>Simpan Perubahan</Text>
-              )}
-            </TouchableOpacity>
-          </View>
+          </ScrollView>
         </View>
       </View>
     </Modal>
@@ -243,6 +301,7 @@ const styles = StyleSheet.create({
   },
   modalContainer: {
     width: '100%',
+    maxHeight: '85%',
     backgroundColor: '#FFFFFF',
     borderRadius: 16,
     padding: 20,
@@ -297,11 +356,17 @@ const styles = StyleSheet.create({
   },
   classRow: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     gap: 6,
   },
+  emptyClassText: {
+    fontSize: 12,
+    color: '#DC2626',
+    fontStyle: 'italic',
+  },
   classOptionBtn: {
-    flex: 1,
     paddingVertical: 8,
+    paddingHorizontal: 10,
     backgroundColor: '#F3F4F6',
     borderRadius: 8,
     alignItems: 'center',
@@ -353,6 +418,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 10,
     marginTop: 10,
+    marginBottom: 4,
   },
   cancelBtn: {
     paddingHorizontal: 14,

@@ -432,43 +432,48 @@ export default function AdminDashboardView({
                         <Text style={styles.userNameText}>{u.name}</Text>
                         <Text style={styles.userEmailText}>{u.email}</Text>
                       </View>
-                      <View
-                        style={[
-                          styles.roleBadge,
-                          {
-                            backgroundColor:
-                              u.role === 'admin'
-                                ? '#FEE2E2'
-                                : u.role === 'teacher'
-                                ? '#DBEAFE'
-                                : '#FEF3C7',
-                          },
-                        ]}
-                      >
-                        <Text
+                      <View style={styles.userCardActions}>
+                        <View
                           style={[
-                            styles.roleBadgeText,
+                            styles.roleBadge,
                             {
-                              color:
+                              backgroundColor:
                                 u.role === 'admin'
-                                  ? '#DC2626'
+                                  ? '#FEE2E2'
                                   : u.role === 'teacher'
-                                  ? '#2563EB'
-                                  : '#D97706',
+                                  ? '#DBEAFE'
+                                  : '#FEF3C7',
                             },
                           ]}
                         >
-                          {u.role.toUpperCase()}
-                        </Text>
+                          <Text
+                            style={[
+                              styles.roleBadgeText,
+                              {
+                                color:
+                                  u.role === 'admin'
+                                    ? '#DC2626'
+                                    : u.role === 'teacher'
+                                    ? '#2563EB'
+                                    : '#D97706',
+                              },
+                            ]}
+                          >
+                            {u.role.toUpperCase()}
+                          </Text>
+                        </View>
+
+                        {/* FIX UI/UX: sebelumnya tombol "Kelola Role & Relasi" full-width
+                            di baris terpisah — makan tempat vertikal banyak buat list yang
+                            bisa panjang. Sekarang jadi icon button compact di baris yang sama. */}
+                        <TouchableOpacity
+                          style={styles.editUserIconBtn}
+                          onPress={() => handleOpenEditUser(u)}
+                        >
+                          <Text style={styles.editUserIconBtnText}>⚙️</Text>
+                        </TouchableOpacity>
                       </View>
                     </View>
-
-                    <TouchableOpacity
-                      style={styles.editUserBtn}
-                      onPress={() => handleOpenEditUser(u)}
-                    >
-                      <Text style={styles.editUserBtnText}>⚙️ Kelola Role & Relasi</Text>
-                    </TouchableOpacity>
                   </View>
                 ))
               )}
@@ -991,6 +996,24 @@ const styles = StyleSheet.create({
   roleBadgeText: {
     fontSize: 10,
     fontWeight: 'bold',
+  },
+  userCardActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  editUserIconBtn: {
+    backgroundColor: '#EFF6FF',
+    width: 30,
+    height: 30,
+    borderRadius: 6,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#BFDBFE',
+  },
+  editUserIconBtnText: {
+    fontSize: 14,
   },
   editUserBtn: {
     marginTop: 8,

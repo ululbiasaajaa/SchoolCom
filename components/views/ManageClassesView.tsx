@@ -161,7 +161,7 @@ export default function ManageClassesView() {
   const handleBackfillSchoolId = () => {
     Alert.alert(
       'Stempel schoolId ke Data Lama',
-      'Ini akan menandai SEMUA data yang sudah ada sekarang (siswa, kelas, guru, nilai, presensi, dst) sebagai milik sekolah ini — persiapan fondasi kalau nanti ada sekolah lain yang pakai SchoolCom juga. Data yang SUDAH punya schoolId dilewati (aman dijalankan berkali-kali). Lanjutkan?',
+      'Ini akan menandai SEMUA data yang sudah ada sekarang (siswa, kelas, guru, nilai, presensi, dst) sebagai milik sekolah ini — persiapan fondasi kalau nanti ada sekolah lain yang pakai SchoolCom juga. Data yang SUDAH punya schoolId dilewati (aman dijalankan berkali-kali). Push token notifikasi TIDAK termasuk di sini — itu otomatis ter-update sendiri begitu penggunanya login ulang. Lanjutkan?',
       [
         { text: 'Batal', style: 'cancel' },
         {

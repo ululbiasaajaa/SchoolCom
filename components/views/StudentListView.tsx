@@ -34,7 +34,9 @@ const StudentListItem = React.memo(
     // FIX: student.className sudah mengandung kata "Kelas" (misal "Kelas TK-A"),
     // jadi tidak perlu ditambah prefix lagi di sini — sebelumnya jadi "Kelas Kelas TK-A".
     const classText = student.className || null;
-    const subTextParts = [classText, genderText, `ID: ${student.id}`].filter(Boolean);
+    // FIX UI/UX: Document ID Firestore mentah dihapus dari tampilan — gak ada
+    // gunanya buat admin sekolah beneran, malah bikin kesan "belum jadi"/teknis.
+    const subTextParts = [classText, genderText].filter(Boolean);
 
     return (
       <TouchableOpacity

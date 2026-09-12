@@ -38,6 +38,16 @@ export interface BackfillSchoolIdResult {
 
 // Semua collection yang butuh schoolId, sesuai daftar field opsional yang udah
 // ditambahin ke types/schoolcom.ts.
+//
+// CATATAN: 'pushTokens' SENGAJA gak dimasukin ke daftar ini. Beda dengan
+// collection lain, rules create/update 'pushTokens' gak punya bypass isAdmin()
+// — cuma PEMILIK token itu sendiri (request.auth.uid == targetUid) yang boleh
+// nulis ke dokumennya. Kalau tetep dipaksa di-backfill dari sisi admin,
+// writeBatch bakal ditolak Firestore ("Missing or insufficient permissions")
+// begitu nyoba nulis ke token milik user lain. Untungnya gak perlu dipaksa:
+// registerForPushNotificationsAsync() (dipanggil otomatis tiap login) udah
+// nyetempel schoolId ke token miliknya sendiri — jadi tokens lama otomatis
+// "self-heal" begitu user login ulang, tanpa perlu campur tangan admin.
 const COLLECTIONS_NEEDING_SCHOOL_ID = [
   'users',
   'students',
@@ -49,7 +59,6 @@ const COLLECTIONS_NEEDING_SCHOOL_ID = [
   'dailyGrades',
   'curriculumFramework',
   'atp',
-  'pushTokens',
 ];
 
 /**
