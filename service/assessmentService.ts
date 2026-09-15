@@ -166,6 +166,14 @@ export const subscribeToAssessmentConfig = (
 /**
  * Menyimpan sekelompok penilaian siswa (batch write) dengan ID deterministik.
  * Document ID deterministik: {academicYear}_{term}_{studentId}_{subjectId} (Sanitized)
+ *
+ * REV-01: TIDAK lagi memicu notifikasi di sini. Notifikasi sekarang dipicu
+ * manual oleh guru lewat tombol "Kirim Notifikasi ke Ortu" di
+ * TeacherAssessmentView, setelah guru selesai review — sama seperti pola
+ * nilai harian (DailyGradeModal). Field `notifiedAt` sengaja TIDAK di-set di
+ * sini (dibiarkan undefined/tetap seperti sebelumnya lewat `merge: true`),
+ * supaya nilai baru otomatis kehitung "belum dikirim" sampai guru pencet
+ * tombol notifikasi.
  */
 export const saveAssessmentBatch = async (
   assessments: Omit<StudentAssessment, 'id'>[]
@@ -198,6 +206,34 @@ export const saveAssessmentBatch = async (
     await batch.commit();
   } catch (error: unknown) {
     console.error('Error saving assessment batch:', error);
+    throw error;
+  }
+};
+
+/**
+ * REV-01: Menandai sekelompok assessment sebagai "sudah dinotifikasi ke ortu".
+ * Dipanggil SETELAH guru pencet tombol "Kirim Notifikasi ke Ortu" dan push
+ * notification berhasil dipicu untuk semua assessment terkait — bukan otomatis
+ * tiap kali simpan nilai. Pola ini identik dengan
+ * dailyGradeService.markDailyGradesAsNotified().
+ */
+export const markAssessmentsAsNotified = async (
+  assessmentIds: string[]
+): Promise<void> => {
+  if (assessmentIds.length === 0) return;
+
+  try {
+    const batch = writeBatch(db);
+    const now = new Date().toISOString();
+
+    assessmentIds.forEach((id) => {
+      const docRef = doc(db, 'assessments', id);
+      batch.update(docRef, { notifiedAt: now });
+    });
+
+    await batch.commit();
+  } catch (error: unknown) {
+    console.error('Error marking assessments as notified:', error);
     throw error;
   }
 };

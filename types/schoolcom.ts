@@ -137,6 +137,7 @@ export interface StudentAssessment {
   updatedAt: string;
   // Fondasi multi-sekolah (belum aktif sebagai fitur) — lihat constants/school.ts.
   schoolId?: string;
+  notifiedAt?: string | null;
 }
 
 // ==========================================

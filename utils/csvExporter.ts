@@ -1,4 +1,4 @@
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
 import { Alert } from 'react-native';
 import { AssessmentConfig, Student, StudentAssessment } from '../types/schoolcom';
@@ -74,8 +74,15 @@ export const exportAssessmentsToCSV = async (
 
     const csvString = '\uFEFF' + rows.join('\n');
 
+    // Guard: cacheDirectory can be null on some platforms/configs.
+    // Surfacing this explicitly instead of letting writeAsStringAsync throw a vague error.
+    const cacheDir = FileSystem.cacheDirectory;
+    if (!cacheDir) {
+      throw new Error('FileSystem.cacheDirectory tidak tersedia di perangkat ini.');
+    }
+
     const fileName = `Rekap_Penilaian_${config.academicYear.replace(/\//g, '-')}_${config.term.replace(/\s+/g, '_')}_${Date.now()}.csv`;
-    const fileUri = `${FileSystem.cacheDirectory}${fileName}`;
+    const fileUri = `${cacheDir}${fileName}`;
 
     await FileSystem.writeAsStringAsync(fileUri, csvString, {
       encoding: FileSystem.EncodingType.UTF8,
@@ -91,7 +98,10 @@ export const exportAssessmentsToCSV = async (
       Alert.alert('Sukses', `File CSV berhasil dibuat: ${fileUri}`);
     }
   } catch (error: unknown) {
+    // Surface the actual error message so future failures are diagnosable
+    // from the alert alone, without needing device logs.
+    const message = error instanceof Error ? error.message : String(error);
     console.error('Error exporting CSV:', error);
-    Alert.alert('Gagal Export CSV', 'Terjadi kesalahan saat meng-generate file CSV.');
+    Alert.alert('Gagal Export CSV', `Terjadi kesalahan saat meng-generate file CSV.\n\nDetail: ${message}`);
   }
 };

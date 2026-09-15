@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -11,6 +11,7 @@ import {
 } from 'react-native';
 
 import {
+  markAssessmentsAsNotified,
   saveAssessmentBatch,
   subscribeToAssessmentConfig,
   subscribeToAssessments,
@@ -31,53 +32,68 @@ import {
 } from '../../utils/educationLevelHelper';
 import { exportStudentReportPDF } from '../../utils/pdfGenerator';
 import DailyGradeModal from '../modals/DailyGradeModal';
+import ReportLinkModal from '../modals/ReportLinkModal';
+import StudentAssessmentDetailModal, {
+  AssessmentDraftValue,
+} from '../modals/StudentAssessmentDetailModal';
 
 interface TeacherAssessmentViewProps {
   students: Student[];
   teacherName?: string;
 }
 
-// Opsi Periode
 const ACADEMIC_YEARS = ['2025/2026', '2026/2027'];
 const TERMS = ['Semester 1', 'Semester 2'];
+
+const EMPTY_DRAFT: AssessmentDraftValue = { score: '', predicate: null, narrative: '' };
+
+const hasAssessmentContent = (a: StudentAssessment): boolean => {
+  return (
+    (a.score !== null && a.score !== undefined) ||
+    !!a.predicate ||
+    !!a.narrative
+  );
+};
 
 export default function TeacherAssessmentView({
   students,
   teacherName = 'Guru',
 }: TeacherAssessmentViewProps) {
-  // State Periode Aktif
   const [selectedAcademicYear, setSelectedAcademicYear] = useState<string>('2026/2027');
   const [selectedTerm, setSelectedTerm] = useState<string>('Semester 1');
 
-  // State Config & Data Assessments dari Firestore
   const [config, setConfig] = useState<AssessmentConfig | null>(null);
   const [isLoadingConfig, setIsLoadingConfig] = useState<boolean>(true);
   const [existingAssessments, setExistingAssessments] = useState<StudentAssessment[]>([]);
 
-  // State Matpel & Siswa Aktif yang dipilih Guru
+  const existingAssessmentsRef = useRef<StudentAssessment[]>([]);
+  useEffect(() => {
+    existingAssessmentsRef.current = existingAssessments;
+  }, [existingAssessments]);
+
   const [selectedSubjectId, setSelectedSubjectId] = useState<string | null>(null);
-  const [selectedStudentId, setSelectedStudentId] = useState<string | null>(null);
 
-  // State Draft Form Input Penilaian
-  const [formScore, setFormScore] = useState<string>('');
-  const [formPredicate, setFormPredicate] = useState<string | null>(null);
-  const [formNarrative, setFormNarrative] = useState<string>('');
+  const [draftValues, setDraftValues] = useState<Record<string, AssessmentDraftValue>>({});
   const [isSaving, setIsSaving] = useState<boolean>(false);
-  const [savingMode, setSavingMode] = useState<'single' | 'continue' | null>(null);
 
-  // State Modal Nilai Harian (Phase 23)
-  const [isDailyGradeModalOpen, setIsDailyGradeModalOpen] = useState<boolean>(false);
+  const [detailStudentId, setDetailStudentId] = useState<string | null>(null);
 
-  // State Daftar Kelas (Phase 26 - buat resolve educationLevel siswa aktif)
+  const [isSendingNotif, setIsSendingNotif] = useState<boolean>(false);
+
+  const [dailyGradeStudentId, setDailyGradeStudentId] = useState<string | null>(null);
+
+  // REV-03: studentId yang lagi dibuka modal Link Rapor-nya. Ini level
+  // PERIODE (academicYear+term), bukan per-mapel — jadi gak butuh
+  // activeSubject terpilih buat dipakai.
+  const [reportLinkStudentId, setReportLinkStudentId] = useState<string | null>(null);
+
   const [classes, setClasses] = useState<SchoolClass[]>([]);
 
-  // Subscribe Daftar Kelas
   useEffect(() => {
     const unsub = subscribeToClasses((fetchedClasses) => setClasses(fetchedClasses));
     return () => unsub();
   }, []);
 
-  // 1. Subscribe Realtime Config berdasarkan Periode Aktif
   useEffect(() => {
     setIsLoadingConfig(true);
     const unsubConfig = subscribeToAssessmentConfig(
@@ -87,7 +103,6 @@ export default function TeacherAssessmentView({
         setConfig(fetchedConfig);
         setIsLoadingConfig(false);
 
-        // Auto select matpel pertama jika matpel aktif belum dipilih/tidak valid
         if (fetchedConfig && fetchedConfig.subjects.length > 0) {
           setSelectedSubjectId((prev) => {
             const exists = fetchedConfig.subjects.some((s) => s.id === prev);
@@ -102,7 +117,6 @@ export default function TeacherAssessmentView({
     return () => unsubConfig();
   }, [selectedAcademicYear, selectedTerm]);
 
-  // 2. Subscribe Realtime Assessments berdasarkan Periode Aktif
   useEffect(() => {
     const unsubAssessments = subscribeToAssessments(
       selectedAcademicYear,
@@ -115,190 +129,248 @@ export default function TeacherAssessmentView({
     return () => unsubAssessments();
   }, [selectedAcademicYear, selectedTerm]);
 
-  // Auto select siswa pertama jika list siswa ada dan belum ada yang dipilih
-  useEffect(() => {
-    if (students.length > 0 && !selectedStudentId) {
-      setSelectedStudentId(students[0].id);
-    }
-  }, [students, selectedStudentId]);
-
-  // Subjek yang sedang dipilih
   const activeSubject = config?.subjects.find((s) => s.id === selectedSubjectId);
-  // Siswa yang sedang dipilih
-  const activeStudent = students.find((s) => s.id === selectedStudentId);
 
-  // Phase 26: Resolve jenjang siswa aktif & cek apakah modul assessment jenjang
-  // itu udah siap. Fallback default 'TK' kalau classId belum ada (lihat komentar
-  // di educationLevelHelper.ts) supaya alur TK yang udah lolos testing gak keganggu.
-  const activeEducationLevel = resolveEducationLevel(activeStudent?.classId, classes);
-  const isAssessmentReady = isAssessmentModeReady(activeEducationLevel);
+  useEffect(() => {
+    const next: Record<string, AssessmentDraftValue> = {};
+    students.forEach((std) => {
+      const saved = existingAssessmentsRef.current.find(
+        (a) =>
+          a.studentId === std.id &&
+          a.subjectId === selectedSubjectId &&
+          a.academicYear === selectedAcademicYear &&
+          a.term === selectedTerm
+      );
+      next[std.id] = {
+        score:
+          saved?.score !== null && saved?.score !== undefined ? String(saved.score) : '',
+        predicate: saved?.predicate || null,
+        narrative: saved?.narrative || '',
+      };
+    });
+    setDraftValues(next);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedSubjectId, selectedAcademicYear, selectedTerm, students]);
 
-  // Assessment yang tersimpan untuk Siswa + Subjek + Periode aktif
-  const currentSavedAssessment = existingAssessments.find(
+  const isStudentDirty = (studentId: string): boolean => {
+    const draft = draftValues[studentId];
+    if (!draft) return false;
+    const saved = existingAssessments.find(
+      (a) =>
+        a.studentId === studentId &&
+        a.subjectId === selectedSubjectId &&
+        a.academicYear === selectedAcademicYear &&
+        a.term === selectedTerm
+    );
+    const savedScoreStr =
+      saved?.score !== null && saved?.score !== undefined ? String(saved.score) : '';
+    const savedPredicate = saved?.predicate || null;
+    const savedNarrative = saved?.narrative || '';
+    return (
+      draft.score !== savedScoreStr ||
+      draft.predicate !== savedPredicate ||
+      draft.narrative !== savedNarrative
+    );
+  };
+
+  const hasUnsavedChanges = students.some((s) => isStudentDirty(s.id));
+
+  const unnotifiedAssessments = existingAssessments.filter(
     (a) =>
-      a.studentId === selectedStudentId &&
       a.subjectId === selectedSubjectId &&
       a.academicYear === selectedAcademicYear &&
-      a.term === selectedTerm
+      a.term === selectedTerm &&
+      !a.notifiedAt &&
+      hasAssessmentContent(a)
   );
 
-  // Synchronize Form State saat siswa, matpel, atau data tersimpan berubah
-  useEffect(() => {
-    if (currentSavedAssessment) {
-      setFormScore(
-        currentSavedAssessment.score !== null && currentSavedAssessment.score !== undefined
-          ? String(currentSavedAssessment.score)
-          : ''
+  const guardedChange = (action: () => void) => {
+    if (hasUnsavedChanges) {
+      Alert.alert(
+        'Perubahan Belum Disimpan',
+        'Ada nilai yang belum di-"Simpan Semua". Kalau lanjut, perubahan ini akan hilang. Tetap lanjut?',
+        [
+          { text: 'Batal', style: 'cancel' },
+          { text: 'Lanjut, Buang Perubahan', style: 'destructive', onPress: action },
+        ]
       );
-      setFormPredicate(currentSavedAssessment.predicate || null);
-      setFormNarrative(currentSavedAssessment.narrative || '');
     } else {
-      // Belum ada data tersimpan: reset form ke kosong
-      setFormScore('');
-      setFormPredicate(null);
-      setFormNarrative('');
-    }
-  }, [selectedStudentId, selectedSubjectId, currentSavedAssessment]);
-
-  // Handle Perubahan Input Nilai Numeric (Validasi 0-100)
-  const handleScoreChange = (text: string) => {
-    const cleaned = text.replace(/[^0-9]/g, '');
-    if (cleaned === '') {
-      setFormScore('');
-      return;
-    }
-    const num = parseInt(cleaned, 10);
-    if (num >= 0 && num <= 100) {
-      setFormScore(String(num));
-    } else if (num > 100) {
-      setFormScore('100');
+      action();
     }
   };
 
-  // Handle Simpan Penilaian (Single & Continue Mode)
-  const handleSaveAssessment = async (shouldContinue: boolean = false) => {
-    if (!activeStudent || !activeSubject) {
-      Alert.alert('Peringatan', 'Silakan pilih siswa dan mata pelajaran terlebih dahulu.');
+  const handleGridScoreChange = (studentId: string, text: string) => {
+    const cleaned = text.replace(/[^0-9]/g, '');
+    setDraftValues((prev) => {
+      const current = prev[studentId] || EMPTY_DRAFT;
+      if (cleaned === '') {
+        return { ...prev, [studentId]: { ...current, score: '' } };
+      }
+      const num = parseInt(cleaned, 10);
+      const clamped = num > 100 ? 100 : num;
+      return { ...prev, [studentId]: { ...current, score: String(clamped) } };
+    });
+  };
+
+  const handleSaveAll = async () => {
+    if (!activeSubject || !config) return;
+
+    const fields = activeSubject.fields;
+    const timestampNow = new Date();
+    const timestampStr = `${timestampNow.getFullYear()}-${String(timestampNow.getMonth() + 1).padStart(2, '0')}-${String(timestampNow.getDate()).padStart(2, '0')} ${String(timestampNow.getHours()).padStart(2, '0')}:${String(timestampNow.getMinutes()).padStart(2, '0')}`;
+
+    const touchedStudents = students.filter((std) => {
+      const d = draftValues[std.id];
+      if (!d) return false;
+      const hasAny = d.score.trim() !== '' || !!d.predicate || d.narrative.trim() !== '';
+      const wasSaved = existingAssessments.some(
+        (a) =>
+          a.studentId === std.id &&
+          a.subjectId === selectedSubjectId &&
+          a.academicYear === selectedAcademicYear &&
+          a.term === selectedTerm
+      );
+      return hasAny || wasSaved;
+    });
+
+    if (touchedStudents.length === 0) {
+      Alert.alert('Peringatan', 'Belum ada nilai yang diisi untuk disimpan.');
       return;
     }
 
-    const fields = activeSubject.fields;
-    let numericValue: number | null | undefined = undefined;
-
-    // A. Validasi Field Numeric
-    if (fields.enableNumeric) {
-      if (formScore.trim() !== '') {
-        const parsed = parseInt(formScore, 10);
+    const invalidNames: string[] = [];
+    touchedStudents.forEach((std) => {
+      const d = draftValues[std.id];
+      if (fields.enableNumeric && d.score.trim() !== '') {
+        const parsed = parseInt(d.score, 10);
         if (isNaN(parsed) || parsed < 0 || parsed > 100) {
-          Alert.alert('Validasi Gagal', 'Nilai angka harus berada di antara 0 - 100.');
+          invalidNames.push(`${std.name} (nilai angka tidak valid)`);
           return;
         }
-        numericValue = parsed;
-      } else {
-        numericValue = null;
       }
-    }
-
-    // B. Validasi Field Predicate (Jika Diaktifkan)
-    if (fields.enablePredicate && config && config.predicates.length > 0) {
-      if (!formPredicate) {
-        Alert.alert('Validasi Gagal', 'Silakan pilih salah satu predikat/capaian.');
+      if (fields.enablePredicate && config.predicates.length > 0 && !d.predicate) {
+        invalidNames.push(`${std.name} (predikat belum dipilih)`);
         return;
       }
-    }
-
-    // C. Validasi Field Narrative (Jika Diaktifkan)
-    const trimmedNarrative = formNarrative.trim();
-    if (fields.enableNarrative) {
-      if (!trimmedNarrative) {
-        Alert.alert(
-          'Validasi Gagal',
-          'Catatan perkembangan belum diisi. Silakan lengkapi narasi sebelum menyimpan.'
-        );
-        return;
+      if (fields.enableNarrative && d.narrative.trim() === '') {
+        invalidNames.push(`${std.name} (narasi belum diisi)`);
       }
+    });
+
+    if (invalidNames.length > 0) {
+      Alert.alert(
+        'Belum Lengkap',
+        `Siswa berikut belum lengkap:\n\n${invalidNames.join('\n')}\n\nLengkapi dulu lewat tombol "›" sebelum menyimpan.`
+      );
+      return;
     }
 
     setIsSaving(true);
-    setSavingMode(shouldContinue ? 'continue' : 'single');
-
     try {
-      const now = new Date();
-      const timestampStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+      const payload: Omit<StudentAssessment, 'id'>[] = touchedStudents.map((std) => {
+        const d = draftValues[std.id];
+        const existing = existingAssessments.find(
+          (a) =>
+            a.studentId === std.id &&
+            a.subjectId === selectedSubjectId &&
+            a.academicYear === selectedAcademicYear &&
+            a.term === selectedTerm
+        );
 
-      const recordPayload: Omit<StudentAssessment, 'id'> = {
-        studentId: activeStudent.id,
-        studentName: activeStudent.name,
-        className: activeStudent.className || 'Kelas',
-        academicYear: selectedAcademicYear,
-        term: selectedTerm,
-        subjectId: activeSubject.id,
-        subjectName: activeSubject.name,
-        teacherName,
-        createdAt: currentSavedAssessment?.createdAt || timestampStr,
-        updatedAt: timestampStr,
-      };
+        const record: Omit<StudentAssessment, 'id'> = {
+          studentId: std.id,
+          studentName: std.name,
+          className: std.className || 'Kelas',
+          academicYear: selectedAcademicYear,
+          term: selectedTerm,
+          subjectId: activeSubject.id,
+          subjectName: activeSubject.name,
+          teacherName,
+          createdAt: existing?.createdAt || timestampStr,
+          updatedAt: timestampStr,
+        };
 
-      if (fields.enableNumeric) {
-        recordPayload.score = numericValue;
-      }
-      if (fields.enablePredicate) {
-        recordPayload.predicate = formPredicate || null;
-      }
-      if (fields.enableNarrative) {
-        recordPayload.narrative = trimmedNarrative || null;
-      }
-
-      await saveAssessmentBatch([recordPayload]);
-
-      // TRIGGER PUSH NOTIFICATION EVT-04 (INFORMASI RAPOR / PENILAIAN BARU KE PARENT)
-      notifyParentOnAssessment(
-        activeStudent.id,
-        activeStudent.name,
-        activeSubject.name
-      ).catch((err) => console.warn('Gagal memicu push notifikasi penilaian:', err));
-
-      if (shouldContinue) {
-        // Cari posisi index siswa aktif saat ini
-        const currentIndex = students.findIndex((s) => s.id === activeStudent.id);
-        const hasNextStudent = currentIndex !== -1 && currentIndex < students.length - 1;
-
-        if (hasNextStudent) {
-          const nextStudent = students[currentIndex + 1];
-          setSelectedStudentId(nextStudent.id);
-        } else {
-          Alert.alert(
-            'Selesai',
-            `Penilaian untuk ${activeStudent.name} berhasil disimpan. Seluruh siswa pada daftar sudah selesai diproses.`
-          );
+        if (fields.enableNumeric) {
+          record.score = d.score.trim() !== '' ? parseInt(d.score, 10) : null;
         }
-      } else {
-        Alert.alert('Sukses', `Penilaian ${activeSubject.name} untuk ${activeStudent.name} berhasil disimpan!`);
-      }
+        if (fields.enablePredicate) {
+          record.predicate = d.predicate || null;
+        }
+        if (fields.enableNarrative) {
+          record.narrative = d.narrative.trim() || null;
+        }
+
+        return record;
+      });
+
+      await saveAssessmentBatch(payload);
+
+      Alert.alert(
+        'Sukses',
+        `${touchedStudents.length} nilai ${activeSubject.name} berhasil disimpan.\n\nJangan lupa pencet "Kirim Notifikasi ke Ortu" kalau sudah yakin semua nilai benar.`
+      );
     } catch (error: unknown) {
-      console.error('Error saving assessment:', error);
-      Alert.alert('Gagal', 'Terjadi kesalahan saat menyimpan penilaian.');
+      console.error('Error saving assessment grid batch:', error);
+      Alert.alert('Gagal', 'Terjadi kesalahan saat menyimpan nilai.');
     } finally {
       setIsSaving(false);
-      setSavingMode(null);
     }
   };
 
-  // Handle Export PDF Rapor Siswa Active
-  const handleExportPDF = () => {
-    if (!activeStudent) {
-      Alert.alert('Peringatan', 'Pilih siswa terlebih dahulu.');
-      return;
-    }
+  const handleSendNotifications = async () => {
+    if (unnotifiedAssessments.length === 0) return;
+    if (!activeSubject) return;
+
+    Alert.alert(
+      'Kirim Notifikasi ke Ortu',
+      `Kirim notifikasi ke ${unnotifiedAssessments.length} orang tua siswa untuk nilai ${activeSubject.name}?`,
+      [
+        { text: 'Batal', style: 'cancel' },
+        {
+          text: 'Kirim',
+          onPress: async () => {
+            setIsSendingNotif(true);
+            try {
+              const results = await Promise.allSettled(
+                unnotifiedAssessments.map((a) =>
+                  notifyParentOnAssessment(a.studentId, a.studentName, a.subjectName)
+                )
+              );
+
+              const failedCount = results.filter((r) => r.status === 'rejected').length;
+              await markAssessmentsAsNotified(unnotifiedAssessments.map((a) => a.id));
+
+              if (failedCount > 0) {
+                Alert.alert(
+                  'Selesai (Sebagian)',
+                  `Notifikasi terkirim, tapi ${failedCount} dari ${unnotifiedAssessments.length} gagal (kemungkinan ortu belum install app / token tidak valid).`
+                );
+              } else {
+                Alert.alert(
+                  'Sukses',
+                  `Notifikasi ${activeSubject.name} berhasil dikirim ke ${unnotifiedAssessments.length} orang tua.`
+                );
+              }
+            } catch (error: unknown) {
+              console.error('Error sending batch assessment notifications:', error);
+              Alert.alert('Gagal', 'Terjadi kesalahan saat mengirim notifikasi.');
+            } finally {
+              setIsSendingNotif(false);
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  const handleExportPDF = (student: Student) => {
     if (!config) {
       Alert.alert('Peringatan', 'Konfigurasi penilaian belum dimuat.');
       return;
     }
-
-    exportStudentReportPDF(activeStudent, config, existingAssessments, teacherName);
+    exportStudentReportPDF(student, config, existingAssessments, teacherName);
   };
 
-  // Handle Export CSV Rekap Penilaian
   const handleExportCSV = () => {
     if (!config) {
       Alert.alert('Peringatan', 'Konfigurasi penilaian belum dimuat.');
@@ -308,35 +380,31 @@ export default function TeacherAssessmentView({
       Alert.alert('Peringatan', 'Tidak ada data siswa untuk diekspor.');
       return;
     }
-
     exportAssessmentsToCSV(students, config, existingAssessments, teacherName);
   };
 
-  // Handle Buka Modal Nilai Harian (Phase 23)
-  // FIX: butuh `classId` (hasil migrasi Phase 22) buat nyimpen dailyGrades sesuai
-  // firestore.rules yang ngecek `isTeacherForClassId`. Kalau siswa ini belum
-  // ke-migrasi (classId kosong), kasih tau guru daripada nyimpen data yang bakal
-  // ditolak rules atau nyimpen classId kosong yang gak konsisten.
-  const handleOpenDailyGrade = () => {
-    if (!activeStudent?.classId) {
+  const handleOpenDailyGrade = (student: Student) => {
+    if (!student.classId) {
       Alert.alert(
         'Kelas Belum Termigrasi',
         'Siswa ini belum punya data kelas hasil migrasi (classId). Jalankan "Migrasi Data Kelas Lama" dulu di tab Kelas (Admin) sebelum mengisi nilai harian.'
       );
       return;
     }
-    setIsDailyGradeModalOpen(true);
+    setDailyGradeStudentId(student.id);
   };
+
+  const dailyGradeStudent = students.find((s) => s.id === dailyGradeStudentId);
+  const detailStudent = students.find((s) => s.id === detailStudentId);
+  const reportLinkStudent = students.find((s) => s.id === reportLinkStudentId);
 
   return (
     <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
-      {/* Header Banner */}
       <View style={styles.headerCard}>
         <Text style={styles.headerTitle}>📝 Penilaian Siswa (Rapor)</Text>
         <Text style={styles.headerSub}>Penginput: {teacherName}</Text>
       </View>
 
-      {/* Filter Periode (Tahun Ajaran & Semester) */}
       <View style={styles.sectionContainer}>
         <Text style={styles.sectionLabel}>Tahun Ajaran & Semester:</Text>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chipRow}>
@@ -344,7 +412,7 @@ export default function TeacherAssessmentView({
             <TouchableOpacity
               key={year}
               style={[styles.chip, selectedAcademicYear === year && styles.chipActive]}
-              onPress={() => setSelectedAcademicYear(year)}
+              onPress={() => guardedChange(() => setSelectedAcademicYear(year))}
             >
               <Text style={[styles.chipText, selectedAcademicYear === year && styles.chipTextActive]}>
                 📅 {year}
@@ -355,7 +423,7 @@ export default function TeacherAssessmentView({
             <TouchableOpacity
               key={term}
               style={[styles.chip, selectedTerm === term && styles.chipActiveTerm]}
-              onPress={() => setSelectedTerm(term)}
+              onPress={() => guardedChange(() => setSelectedTerm(term))}
             >
               <Text style={[styles.chipText, selectedTerm === term && styles.chipTextActive]}>
                 📌 {term}
@@ -365,7 +433,6 @@ export default function TeacherAssessmentView({
         </ScrollView>
       </View>
 
-      {/* State Loading / Error Config */}
       {isLoadingConfig ? (
         <View style={styles.centerCard}>
           <ActivityIndicator size="large" color="#2563EB" />
@@ -380,7 +447,6 @@ export default function TeacherAssessmentView({
         </View>
       ) : (
         <>
-          {/* Selector Mata Pelajaran / Aspek */}
           <View style={styles.sectionContainer}>
             <Text style={styles.sectionLabel}>Mata Pelajaran / Aspek Perkembangan:</Text>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chipRow}>
@@ -390,7 +456,7 @@ export default function TeacherAssessmentView({
                   <TouchableOpacity
                     key={sub.id}
                     style={[styles.chip, isActive && styles.chipActiveSubject]}
-                    onPress={() => setSelectedSubjectId(sub.id)}
+                    onPress={() => guardedChange(() => setSelectedSubjectId(sub.id))}
                   >
                     <Text style={[styles.chipText, isActive && styles.chipTextActive]}>
                       📚 {sub.name}
@@ -401,197 +467,174 @@ export default function TeacherAssessmentView({
             </ScrollView>
           </View>
 
-          {/* Selector Siswa dengan Highlight Indicator Clear */}
-          <View style={styles.sectionContainer}>
-            <Text style={styles.sectionLabel}>Pilih Siswa:</Text>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chipRow}>
-              {students.map((std) => {
-                const isActive = selectedStudentId === std.id;
-                const hasAssessed = existingAssessments.some(
-                  (a) =>
-                    a.studentId === std.id &&
-                    a.subjectId === selectedSubjectId &&
-                    a.academicYear === selectedAcademicYear &&
-                    a.term === selectedTerm
-                );
-
-                return (
-                  <TouchableOpacity
-                    key={std.id}
-                    style={[
-                      styles.studentChip,
-                      hasAssessed && styles.studentChipFilled,
-                      isActive && styles.studentChipActive,
-                    ]}
-                    onPress={() => setSelectedStudentId(std.id)}
-                  >
-                    <Text style={[
-                      styles.studentChipText,
-                      hasAssessed && styles.studentChipTextFilled,
-                      isActive && styles.studentChipTextActive
-                    ]}>
-                      {std.avatar || '👦'} {std.name} {hasAssessed ? '✓ Terisi' : '⚪ Belum'}
-                    </Text>
-                  </TouchableOpacity>
-                );
-              })}
-            </ScrollView>
-          </View>
-
-          {/* Form Penilaian Dinamis (Phase 26: digate oleh jenjang kelas siswa aktif) */}
-          {activeSubject && activeStudent && !isAssessmentReady && (
-            <View style={styles.comingSoonCard}>
-              <Text style={styles.comingSoonIcon}>🚧</Text>
-              <Text style={styles.comingSoonTitle}>Segera Hadir</Text>
-              <Text style={styles.comingSoonText}>{getComingSoonMessage(activeEducationLevel)}</Text>
+          {unnotifiedAssessments.length > 0 && (
+            <View style={styles.notifyBanner}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.notifyBannerTitle}>
+                  📨 {unnotifiedAssessments.length} nilai belum dikirim ke ortu
+                </Text>
+                <Text style={styles.notifyBannerSub}>
+                  Untuk mata pelajaran {activeSubject?.name}.
+                </Text>
+              </View>
+              <TouchableOpacity
+                style={[styles.notifyBtn, isSendingNotif && styles.btnDisabled]}
+                onPress={handleSendNotifications}
+                disabled={isSendingNotif}
+              >
+                {isSendingNotif ? (
+                  <ActivityIndicator color="#FFFFFF" size="small" />
+                ) : (
+                  <Text style={styles.notifyBtnText}>Kirim</Text>
+                )}
+              </TouchableOpacity>
             </View>
           )}
 
-          {activeSubject && activeStudent && isAssessmentReady && (
-            <View style={styles.formCard}>
-              <View style={styles.formHeaderRow}>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.formTitle}>{activeStudent.name}</Text>
-                  <Text style={styles.formSubTitle}>
-                    {activeSubject.name} • {selectedAcademicYear} ({selectedTerm})
-                  </Text>
-                </View>
+          <View style={styles.toolbarRow}>
+            <TouchableOpacity style={styles.csvExportBtn} onPress={handleExportCSV}>
+              <Text style={styles.csvExportBtnText}>📊 Export CSV Sekelas</Text>
+            </TouchableOpacity>
+          </View>
 
-                {/* Badge Status Dinamis & Trigger Buttons */}
-                <View style={{ alignItems: 'flex-end', gap: 6 }}>
-                  <View style={[styles.statusBadge, currentSavedAssessment ? styles.badgeSuccess : styles.badgePending]}>
-                    <Text style={styles.statusBadgeText}>
-                      {currentSavedAssessment ? 'Tersimpan' : 'Belum Diisi'}
-                    </Text>
-                  </View>
-
-                  <View style={{ flexDirection: 'row', gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-                    <TouchableOpacity style={styles.dailyGradeBtn} onPress={handleOpenDailyGrade}>
-                      <Text style={styles.dailyGradeBtnText}>📝 Nilai Harian</Text>
-                    </TouchableOpacity>
-
-                    <TouchableOpacity style={styles.pdfExportBtn} onPress={handleExportPDF}>
-                      <Text style={styles.pdfExportBtnText}>📄 PDF Rapor</Text>
-                    </TouchableOpacity>
-
-                    <TouchableOpacity style={styles.csvExportBtn} onPress={handleExportCSV}>
-                      <Text style={styles.csvExportBtnText}>📊 Export CSV</Text>
-                    </TouchableOpacity>
-                  </View>
-                </View>
+          {activeSubject && (
+            <View style={styles.gridCard}>
+              <View style={styles.gridHeaderRow}>
+                <Text style={[styles.gridHeaderText, styles.gridNameCol]}>Nama Siswa</Text>
+                {activeSubject.fields.enableNumeric && (
+                  <Text style={[styles.gridHeaderText, styles.gridScoreCol]}>Nilai</Text>
+                )}
+                <Text style={[styles.gridHeaderText, styles.gridActionCol]}> </Text>
               </View>
 
-              {/* 1. Field Numeric (Jika Active) */}
-              {activeSubject.fields.enableNumeric && (
-                <View style={styles.inputGroup}>
-                  <Text style={styles.inputLabel}>Nilai Angka (0 - 100):</Text>
-                  <TextInput
-                    style={styles.numericInput}
-                    keyboardType="numeric"
-                    maxLength={3}
-                    placeholder="Contoh: 85"
-                    value={formScore}
-                    onChangeText={handleScoreChange}
-                  />
-                </View>
-              )}
+              {students.map((std) => {
+                const draft = draftValues[std.id] || EMPTY_DRAFT;
+                const dirty = isStudentDirty(std.id);
+                const eduLevel = resolveEducationLevel(std.classId, classes);
+                const ready = isAssessmentModeReady(eduLevel);
+                const needsDetail =
+                  activeSubject.fields.enablePredicate || activeSubject.fields.enableNarrative;
 
-              {/* 2. Field Predicate (Jika Active) */}
-              {activeSubject.fields.enablePredicate && (
-                <View style={styles.inputGroup}>
-                  <Text style={styles.inputLabel}>Predikat / Capaian *:</Text>
-                  {config.predicates.length === 0 ? (
-                    <Text style={styles.infoText}>Belum ada daftar predikat dari Admin.</Text>
-                  ) : (
-                    <View style={styles.predicateGrid}>
-                      {config.predicates.map((p) => {
-                        const isSelected = formPredicate === p.label;
-                        return (
-                          <TouchableOpacity
-                            key={p.id}
-                            style={[
-                              styles.predicateChip,
-                              isSelected && styles.predicateChipActive,
-                            ]}
-                            onPress={() => setFormPredicate(isSelected ? null : p.label)}
-                          >
-                            <Text
-                              style={[
-                                styles.predicateChipText,
-                                isSelected && styles.predicateChipTextActive,
-                              ]}
-                            >
-                              {p.label}
-                            </Text>
-                          </TouchableOpacity>
-                        );
-                      })}
+                if (!ready) {
+                  return (
+                    <View key={std.id} style={styles.gridRowComingSoon}>
+                      <Text style={styles.gridRowComingSoonText}>
+                        {std.avatar || '👦'} {std.name} — 🚧 {getComingSoonMessage(eduLevel)}
+                      </Text>
                     </View>
-                  )}
-                </View>
-              )}
+                  );
+                }
 
-              {/* 3. Field Narrative (Jika Active) */}
-              {activeSubject.fields.enableNarrative && (
-                <View style={styles.inputGroup}>
-                  <Text style={styles.inputLabel}>Catatan Narasi Perkembangan *:</Text>
-                  <TextInput
-                    style={styles.textArea}
-                    multiline
-                    numberOfLines={4}
-                    placeholder="Tuliskan deskripsi/catatan perkembangan siswa..."
-                    value={formNarrative}
-                    onChangeText={setFormNarrative}
-                    textAlignVertical="top"
-                  />
-                </View>
-              )}
+                return (
+                  <View key={std.id} style={[styles.gridRow, dirty && styles.gridRowDirty]}>
+                    <View style={styles.gridNameCol}>
+                      <Text style={styles.gridNameText} numberOfLines={1}>
+                        {std.avatar || '👦'} {std.name}
+                      </Text>
+                      {(draft.predicate || draft.narrative) && (
+                        <Text style={styles.gridSubText} numberOfLines={1}>
+                          {draft.predicate ? `${draft.predicate}` : ''}
+                          {draft.predicate && draft.narrative ? ' • ' : ''}
+                          {draft.narrative ? 'ada narasi' : ''}
+                        </Text>
+                      )}
+                    </View>
 
-              {/* Action Buttons Area */}
-              <View style={styles.buttonActionRow}>
-                {/* Tombol Simpan & Lanjut */}
-                <TouchableOpacity
-                  style={[styles.saveContinueBtn, isSaving && styles.saveBtnDisabled]}
-                  onPress={() => handleSaveAssessment(true)}
-                  disabled={isSaving}
-                >
-                  {isSaving && savingMode === 'continue' ? (
-                    <ActivityIndicator color="#FFFFFF" size="small" />
-                  ) : (
-                    <Text style={styles.saveContinueBtnText}>
-                      ⏩ Simpan & Lanjut
-                    </Text>
-                  )}
-                </TouchableOpacity>
+                    {activeSubject.fields.enableNumeric && (
+                      <View style={styles.gridScoreCol}>
+                        <TextInput
+                          style={styles.gridScoreInput}
+                          keyboardType="numeric"
+                          maxLength={3}
+                          placeholder="-"
+                          value={draft.score}
+                          onChangeText={(text) => handleGridScoreChange(std.id, text)}
+                        />
+                      </View>
+                    )}
 
-                {/* Tombol Simpan / Perbarui Utama */}
-                <TouchableOpacity
-                  style={[styles.saveBtn, isSaving && styles.saveBtnDisabled]}
-                  onPress={() => handleSaveAssessment(false)}
-                  disabled={isSaving}
-                >
-                  {isSaving && savingMode === 'single' ? (
-                    <ActivityIndicator color="#FFFFFF" size="small" />
-                  ) : (
-                    <Text style={styles.saveBtnText}>
-                      {currentSavedAssessment ? '✏️ Perbarui Penilaian' : '💾 Simpan Penilaian'}
-                    </Text>
-                  )}
-                </TouchableOpacity>
-              </View>
+                    <View style={styles.gridActionCol}>
+                      <TouchableOpacity
+                        style={styles.rowIconBtn}
+                        onPress={() => handleOpenDailyGrade(std)}
+                      >
+                        <Text style={styles.rowIconText}>📝</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={styles.rowIconBtn}
+                        onPress={() => handleExportPDF(std)}
+                      >
+                        <Text style={styles.rowIconText}>📄</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={styles.rowIconBtn}
+                        onPress={() => setReportLinkStudentId(std.id)}
+                      >
+                        <Text style={styles.rowIconText}>🔗</Text>
+                      </TouchableOpacity>
+                      {needsDetail && (
+                        <TouchableOpacity
+                          style={styles.rowChevronBtn}
+                          onPress={() => setDetailStudentId(std.id)}
+                        >
+                          <Text style={styles.rowChevronText}>›</Text>
+                        </TouchableOpacity>
+                      )}
+                    </View>
+                  </View>
+                );
+              })}
+
+              <TouchableOpacity
+                style={[styles.saveAllBtn, isSaving && styles.btnDisabled]}
+                onPress={handleSaveAll}
+                disabled={isSaving}
+              >
+                {isSaving ? (
+                  <ActivityIndicator color="#FFFFFF" size="small" />
+                ) : (
+                  <Text style={styles.saveAllBtnText}>💾 Simpan Semua</Text>
+                )}
+              </TouchableOpacity>
             </View>
           )}
         </>
       )}
 
-      {/* MODAL NILAI HARIAN (PHASE 23) */}
-      {activeStudent && activeSubject && activeStudent.classId && (
+      {detailStudent && activeSubject && (
+        <StudentAssessmentDetailModal
+          visible={!!detailStudentId}
+          studentName={detailStudent.name}
+          subjectName={activeSubject.name}
+          fields={activeSubject.fields}
+          predicateOptions={config?.predicates || []}
+          value={draftValues[detailStudent.id] || EMPTY_DRAFT}
+          onChange={(next) =>
+            setDraftValues((prev) => ({ ...prev, [detailStudent.id]: next }))
+          }
+          onClose={() => setDetailStudentId(null)}
+        />
+      )}
+
+      {reportLinkStudent && (
+        <ReportLinkModal
+          visible={!!reportLinkStudentId}
+          studentId={reportLinkStudent.id}
+          studentName={reportLinkStudent.name}
+          academicYear={selectedAcademicYear}
+          term={selectedTerm}
+          teacherName={teacherName}
+          onClose={() => setReportLinkStudentId(null)}
+        />
+      )}
+
+      {dailyGradeStudent && activeSubject && dailyGradeStudent.classId && (
         <DailyGradeModal
-          visible={isDailyGradeModalOpen}
-          onClose={() => setIsDailyGradeModalOpen(false)}
-          studentId={activeStudent.id}
-          studentName={activeStudent.name}
-          classId={activeStudent.classId}
+          visible={!!dailyGradeStudentId}
+          onClose={() => setDailyGradeStudentId(null)}
+          studentId={dailyGradeStudent.id}
+          studentName={dailyGradeStudent.name}
+          classId={dailyGradeStudent.classId}
           domainId={activeSubject.id}
           domainName={activeSubject.name}
           academicYear={selectedAcademicYear}
@@ -604,32 +647,6 @@ export default function TeacherAssessmentView({
 }
 
 const styles = StyleSheet.create({
-  comingSoonCard: {
-    backgroundColor: '#FFFBEB',
-    borderWidth: 1,
-    borderColor: '#FDE68A',
-    borderRadius: 12,
-    padding: 24,
-    alignItems: 'center',
-    marginTop: 4,
-    marginBottom: 24,
-  },
-  comingSoonIcon: {
-    fontSize: 28,
-    marginBottom: 8,
-  },
-  comingSoonTitle: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: '#92400E',
-    marginBottom: 6,
-  },
-  comingSoonText: {
-    fontSize: 12,
-    color: '#78350F',
-    textAlign: 'center',
-    lineHeight: 18,
-  },
   container: {
     flex: 1,
     backgroundColor: '#F3F4F6',
@@ -687,34 +704,57 @@ const styles = StyleSheet.create({
   chipTextActive: {
     color: '#FFFFFF',
   },
-  studentChip: {
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 8,
-    backgroundColor: '#FFFFFF',
+  notifyBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFFBEB',
     borderWidth: 1,
-    borderColor: '#E5E7EB',
-    marginRight: 8,
+    borderColor: '#FDE68A',
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 12,
+    gap: 10,
   },
-  studentChipFilled: {
-    backgroundColor: '#F0FDF4',
-    borderColor: '#86EFAC',
-  },
-  studentChipActive: {
-    borderColor: '#2563EB',
-    backgroundColor: '#EFF6FF',
-  },
-  studentChipText: {
+  notifyBannerTitle: {
     fontSize: 13,
-    fontWeight: '600',
-    color: '#374151',
-  },
-  studentChipTextFilled: {
-    color: '#166534',
-  },
-  studentChipTextActive: {
-    color: '#2563EB',
     fontWeight: '700',
+    color: '#92400E',
+  },
+  notifyBannerSub: {
+    fontSize: 11,
+    color: '#78350F',
+    marginTop: 2,
+  },
+  notifyBtn: {
+    backgroundColor: '#D97706',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 8,
+    minWidth: 64,
+    alignItems: 'center',
+  },
+  notifyBtnText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  toolbarRow: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    marginBottom: 10,
+  },
+  csvExportBtn: {
+    backgroundColor: '#ECFDF5',
+    borderWidth: 1,
+    borderColor: '#A7F3D0',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 6,
+  },
+  csvExportBtnText: {
+    color: '#059669',
+    fontSize: 11,
+    fontWeight: '600',
   },
   centerCard: {
     backgroundColor: '#FFFFFF',
@@ -737,176 +777,118 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginTop: 4,
   },
-  formCard: {
+  gridCard: {
     backgroundColor: '#FFFFFF',
-    padding: 16,
     borderRadius: 12,
     borderWidth: 1,
     borderColor: '#E5E7EB',
-    marginTop: 4,
+    padding: 8,
     marginBottom: 24,
   },
-  formHeaderRow: {
+  gridHeaderRow: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    marginBottom: 16,
-    paddingBottom: 12,
+    alignItems: 'center',
+    paddingHorizontal: 8,
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E5E7EB',
+  },
+  gridHeaderText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#6B7280',
+    textTransform: 'uppercase',
+  },
+  gridRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 8,
+    paddingVertical: 8,
     borderBottomWidth: 1,
     borderBottomColor: '#F3F4F6',
   },
-  formTitle: {
-    fontSize: 16,
-    fontWeight: '700',
+  gridRowDirty: {
+    backgroundColor: '#FFFBEB',
+    borderLeftWidth: 3,
+    borderLeftColor: '#F59E0B',
+  },
+  gridRowComingSoon: {
+    paddingHorizontal: 8,
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F3F4F6',
+  },
+  gridRowComingSoonText: {
+    fontSize: 12,
+    color: '#9CA3AF',
+    fontStyle: 'italic',
+  },
+  gridNameCol: {
+    flex: 1,
+    paddingRight: 8,
+  },
+  gridNameText: {
+    fontSize: 13,
+    fontWeight: '600',
     color: '#111827',
   },
-  formSubTitle: {
-    fontSize: 12,
-    color: '#6B7280',
+  gridSubText: {
+    fontSize: 10,
+    color: '#9CA3AF',
     marginTop: 2,
   },
-  statusBadge: {
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 12,
+  gridScoreCol: {
+    width: 64,
+    alignItems: 'center',
   },
-  badgeSuccess: {
-    backgroundColor: '#D1FAE5',
-  },
-  badgePending: {
-    backgroundColor: '#FEF3C7',
-  },
-  statusBadgeText: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: '#1F2937',
-  },
-  dailyGradeBtn: {
-    backgroundColor: '#FEF3C7',
-    borderWidth: 1,
-    borderColor: '#FDE68A',
-    paddingHorizontal: 8,
-    paddingVertical: 5,
-    borderRadius: 6,
-  },
-  dailyGradeBtnText: {
-    color: '#D97706',
-    fontSize: 11,
-    fontWeight: '600',
-  },
-  pdfExportBtn: {
-    backgroundColor: '#EFF6FF',
-    borderWidth: 1,
-    borderColor: '#BFDBFE',
-    paddingHorizontal: 8,
-    paddingVertical: 5,
-    borderRadius: 6,
-  },
-  pdfExportBtnText: {
-    color: '#2563EB',
-    fontSize: 11,
-    fontWeight: '600',
-  },
-  csvExportBtn: {
-    backgroundColor: '#ECFDF5',
-    borderWidth: 1,
-    borderColor: '#A7F3D0',
-    paddingHorizontal: 8,
-    paddingVertical: 5,
-    borderRadius: 6,
-  },
-  csvExportBtnText: {
-    color: '#059669',
-    fontSize: 11,
-    fontWeight: '600',
-  },
-  inputGroup: {
-    marginBottom: 14,
-  },
-  inputLabel: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: '#374151',
-    marginBottom: 6,
-  },
-  numericInput: {
+  gridScoreInput: {
     backgroundColor: '#F9FAFB',
     borderWidth: 1,
     borderColor: '#D1D5DB',
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    fontSize: 15,
+    borderRadius: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+    fontSize: 14,
     fontWeight: '700',
     color: '#111827',
-    width: 120,
+    width: 56,
+    textAlign: 'center',
   },
-  predicateGrid: {
+  gridActionCol: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
+    alignItems: 'center',
+    gap: 4,
+    width: 116,
+    justifyContent: 'flex-end',
   },
-  predicateChip: {
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#D1D5DB',
-    backgroundColor: '#F9FAFB',
+  rowIconBtn: {
+    padding: 4,
   },
-  predicateChipActive: {
+  rowIconText: {
+    fontSize: 14,
+  },
+  rowChevronBtn: {
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+  },
+  rowChevronText: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#9CA3AF',
+  },
+  saveAllBtn: {
     backgroundColor: '#2563EB',
-    borderColor: '#2563EB',
-  },
-  predicateChipText: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: '#4B5563',
-  },
-  predicateChipTextActive: {
-    color: '#FFFFFF',
-    fontWeight: '700',
-  },
-  textArea: {
-    backgroundColor: '#F9FAFB',
-    borderWidth: 1,
-    borderColor: '#D1D5DB',
-    borderRadius: 8,
-    padding: 12,
-    fontSize: 13,
-    color: '#111827',
-    minHeight: 90,
-  },
-  buttonActionRow: {
-    flexDirection: 'row',
-    gap: 10,
+    paddingVertical: 14,
+    borderRadius: 10,
+    alignItems: 'center',
     marginTop: 8,
   },
-  saveContinueBtn: {
-    flex: 1,
-    backgroundColor: '#059669',
-    paddingVertical: 14,
-    borderRadius: 10,
-    alignItems: 'center',
-  },
-  saveContinueBtnText: {
+  saveAllBtnText: {
     color: '#FFFFFF',
-    fontSize: 13,
+    fontSize: 14,
     fontWeight: '700',
   },
-  saveBtn: {
-    flex: 1,
-    backgroundColor: '#2563EB',
-    paddingVertical: 14,
-    borderRadius: 10,
-    alignItems: 'center',
-  },
-  saveBtnDisabled: {
+  btnDisabled: {
     opacity: 0.6,
-  },
-  saveBtnText: {
-    color: '#FFFFFF',
-    fontSize: 13,
-    fontWeight: '700',
   },
 });
